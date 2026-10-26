@@ -26,12 +26,16 @@ public partial class MainWindow : Window
     bool playing, updating, seeking, ready, previewReady, light, fullscreen;
     double previewTarget;
     Uri? source;
+    enum ViewMode { Maximized, Fullscreen }
+    ViewMode previousViewMode = ViewMode.Fullscreen;
+    bool changingViewMode;
     readonly WindowFrame frame;
     public string Publisher => CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ko" ? "조민혁" : "Minhyeok Cho";
     public MainWindow()
     {
         InitializeComponent();
         frame = new WindowFrame(this);
+        StateChanged += (_, _) => { if (!changingViewMode && !fullscreen && WindowState == WindowState.Maximized) previousViewMode = ViewMode.Maximized; };
         fullscreenIdle.Tick += (_, _) => UpdateFullscreenControls();
         Player.Volume = Volume.Value; UpdateVolumeIcon();
         clock.Tick += (_, _) => { if (!ready || seeking) return; updating = true; Timeline.Value = Player.Position.TotalSeconds; updating = false; UpdateClock(); };
@@ -145,7 +149,7 @@ public partial class MainWindow : Window
     {
         var menu = new ContextMenu();
         foreach (var item in new[] { ("다크 / Dark", false), ("라이트 / Light", true) }) { var m = new MenuItem { Header = item.Item1, IsCheckable = true, IsChecked = light == item.Item2 }; m.Click += (_, _) => { light = item.Item2; ApplyTheme(); }; menu.Items.Add(m); }
-        menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = $"JustVID · 1.1.0 · {Publisher}", IsEnabled = false }); menu.IsOpen = true;
+        menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = $"JustVID · 1.2.0 · {Publisher}", IsEnabled = false }); menu.IsOpen = true;
     }
     void ApplyTheme()
     {
@@ -154,12 +158,18 @@ public partial class MainWindow : Window
         var keys = new[] { "Surface", "Ink", "Muted", "TrackColor", "Hover" }; for (int i = 0; i < keys.Length; i++) Resources[keys[i]] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colors[i]));
     }
     void Minimize(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
-    void Maximize(object sender, RoutedEventArgs e) { if (fullscreen) ExitFullscreen(); else WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized; }
+    void Maximize(object sender, RoutedEventArgs e)
+    {
+        if (fullscreen) { ExitFullscreen(); return; }
+        previousViewMode = ViewMode.Maximized;
+        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+    }
     void CloseWindow(object sender, RoutedEventArgs e) => Close();
     void FullscreenClick(object sender, RoutedEventArgs e) => ToggleFullscreen();
     void ToggleFullscreen()
     {
         if (fullscreen) { ExitFullscreen(); return; }
+        previousViewMode = ViewMode.Fullscreen;
         CancelSelection(); ReleasePreview(); fullscreen = true;
         TitleBar.Visibility = Visibility.Collapsed; TitleRow.Height = new GridLength(0);
         RootLayout.Children.Remove(ControlBar);
@@ -172,11 +182,13 @@ public partial class MainWindow : Window
     void ExitFullscreen()
     {
         if (!fullscreen) return;
+        changingViewMode = true;
         CancelSelection(); fullscreen = false;
         fullscreenIdle.Stop(); FullscreenControls.IsOpen = false; ReleasePreview();
         FullscreenControlHost.Child = null; RootLayout.Children.Add(ControlBar);
         TitleBar.Visibility = Visibility.Visible; TitleRow.Height = new GridLength(40);
         frame.ExitFullscreen();
+        changingViewMode = false;
     }
     void PositionFullscreenControls()
     {
@@ -193,9 +205,12 @@ public partial class MainWindow : Window
         lastPointer = pointer;
         bool inWindow = local.X >= 0 && local.X < ActualWidth && local.Y >= 0 && local.Y < ActualHeight;
         bool appActive = IsActive || Window.GetWindow(InputArea)?.IsActive == true || FullscreenControlHost.IsKeyboardFocusWithin;
-        if (!appActive) { FullscreenControls.IsOpen = false; ReleasePreview(); return; }
+        if (!appActive) { HideFullscreenControls(); return; }
         long now = Stopwatch.GetTimestamp();
-        if (moved && inWindow && local.Y >= ActualHeight - 84)
+        bool inControls = inWindow && local.Y >= ActualHeight - 75;
+        bool dragging = ControlBar.IsMouseCaptureWithin || seeking;
+        if (FullscreenControls.IsOpen && !inControls && !dragging) { HideFullscreenControls(true); return; }
+        if (moved && inControls)
         {
             controlsActivity = now; PositionFullscreenControls(); FullscreenControls.IsOpen = true;
         }
@@ -203,10 +218,35 @@ public partial class MainWindow : Window
         if (ControlBar.IsMouseCaptureWithin || seeking || origin != null || (inWindow && Mouse.LeftButton == MouseButtonState.Pressed)) controlsActivity = now;
         if ((now - controlsActivity) / (double)Stopwatch.Frequency >= 2.5)
         {
-            FullscreenControls.IsOpen = false; ReleasePreview();
-            // A closed popup must not keep keyboard focus in its old child tree.
-            if (ready) InputArea.Focus(); else Focus();
+            HideFullscreenControls(true);
         }
+    }
+    void FullscreenControlsLeave(object sender, MouseEventArgs e)
+    {
+        if (fullscreen && !ControlBar.IsMouseCaptureWithin && !seeking) HideFullscreenControls(true);
+    }
+    void HideFullscreenControls(bool restoreFocus = false)
+    {
+        if (!FullscreenControls.IsOpen) return;
+        FullscreenControls.IsOpen = false; ReleasePreview();
+        if (restoreFocus) { if (ready) InputArea.Focus(); else Focus(); }
+    }
+    void ToggleWindowMode()
+    {
+        CancelSelection();
+        if (fullscreen)
+        {
+            previousViewMode = ViewMode.Fullscreen;
+            ExitFullscreen();
+            WindowState = WindowState.Normal;
+        }
+        else if (WindowState == WindowState.Maximized)
+        {
+            previousViewMode = ViewMode.Maximized;
+            WindowState = WindowState.Normal;
+        }
+        else if (previousViewMode == ViewMode.Maximized) WindowState = WindowState.Maximized;
+        else ToggleFullscreen();
     }
     [StructLayout(LayoutKind.Sequential)] struct CursorPoint { public int X, Y; }
     [DllImport("user32.dll")] static extern bool GetCursorPos(out CursorPoint point);
@@ -215,12 +255,8 @@ public partial class MainWindow : Window
         if (e.Key == Key.O && Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) OpenClick(this, e);
         else if (e.Key == Key.Space) Toggle();
         else if (e.Key == Key.F) ToggleFullscreen();
-        else if (e.Key == Key.Escape)
-        {
-            CancelSelection();
-            if (fullscreen) ExitFullscreen();
-            if (WindowState == WindowState.Maximized) WindowState = WindowState.Normal;
-        }
+        else if (e.Key == Key.Enter) { if (!e.IsRepeat) ToggleWindowMode(); }
+        else if (e.Key == Key.Escape) CancelSelection();
         else if (e.Key == Key.M) MuteClick(this, e);
         else if (ready && (e.Key == Key.Left || e.Key == Key.Right)) Player.Position = TimeSpan.FromSeconds(Math.Clamp(Player.Position.TotalSeconds + (e.Key == Key.Right ? 5 : -5), 0, Timeline.Maximum));
         else return;

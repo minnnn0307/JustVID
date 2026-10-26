@@ -96,11 +96,28 @@ static class Smoke
         mouse_event(2, 0, 0, 0, UIntPtr.Zero); await Task.Delay(100); mouse_event(4, 0, 0, 0, UIntPtr.Zero);
         await Wait(() => view.Position.TotalSeconds > 4 && view.Position.TotalSeconds < 9, "fullscreen seek controls did not receive native click");
         Check(true, "fullscreen overlay timeline receives native seek click");
+        Move(window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight / 2)));
+        await Task.Delay(250);
+        Check(!controls.IsOpen, "controls hide immediately when mouse leaves their area");
+        Move(window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight - 20)));
+        await Wait(() => controls.IsOpen, "controls did not reappear after returning to bottom");
         await Wait(() => !controls.IsOpen, "fullscreen controls did not hide after inactivity");
         Check(!controls.IsOpen, "fullscreen controls auto-hide after inactivity");
-        SendEscape(); await Task.Delay(500); GetWindowRect(handle, out actual);
-        Check(!Field<bool>("fullscreen") && Field<Grid>("ControlBar").IsVisible, "Escape exits fullscreen and restores normal controls");
+        keybd_event(0x1B, 0, 0, UIntPtr.Zero); keybd_event(0x1B, 0, 2, UIntPtr.Zero); await Task.Delay(150);
+        Check(Field<bool>("fullscreen"), "Escape no longer changes window mode");
+        SendEnter(); await Task.Delay(500); GetWindowRect(handle, out actual);
+        Check(!Field<bool>("fullscreen") && Field<Grid>("ControlBar").IsVisible, "Enter exits fullscreen and restores normal controls");
         Check(Math.Abs(actual.Left - original.Left) <= 2 && Math.Abs(actual.Top - original.Top) <= 2 && Math.Abs(actual.Right - original.Right) <= 2 && Math.Abs(actual.Bottom - original.Bottom) <= 2, "fullscreen restores original bounds");
+        SendEnter(); await Task.Delay(300);
+        Check(Field<bool>("fullscreen"), "Enter in normal window restores previous fullscreen mode");
+        Move(window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight / 2))); await Task.Delay(150);
+        Move(window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight - 20)));
+        await Wait(() => controls.IsOpen, "controls not revealed for popup Enter check");
+        await Task.Delay(150);
+        Move(timeline.PointToScreen(new Point(timeline.ActualWidth * .2, timeline.ActualHeight / 2)));
+        mouse_event(2, 0, 0, 0, UIntPtr.Zero); await Task.Delay(100); mouse_event(4, 0, 0, 0, UIntPtr.Zero);
+        SendEnter(); await Task.Delay(300);
+        Check(!Field<bool>("fullscreen") && window.WindowState == WindowState.Normal, "Enter works while fullscreen controls have focus");
         window.WindowState = WindowState.Maximized; await Task.Delay(500);
         GetWindowRect(handle, out actual);
         GetMonitorInfo(MonitorFromWindow(handle, 2), ref monitor);
@@ -111,11 +128,19 @@ static class Smoke
         Invoke("ToggleFullscreen"); await Task.Delay(500); Invoke("ExitFullscreen"); await Task.Delay(500);
         GetWindowRect(handle, out actual);
         Check(window.WindowState == WindowState.Maximized && actual.Bottom <= monitor.Work.Bottom, "fullscreen from maximized restores work-area bounds");
-        window.Activate(); SendEscape(); await Task.Delay(300);
-        Check(window.WindowState == WindowState.Normal, "Escape restores a maximized window");
+        window.Activate(); SendEnter(); await Task.Delay(300);
+        Check(window.WindowState == WindowState.Normal, "Enter restores a maximized window");
+        SendEnter(); await Task.Delay(300);
+        Check(!Field<bool>("fullscreen") && window.WindowState == WindowState.Maximized, "Enter restores previous maximized mode instead of fullscreen");
+        SendEnter(); await Task.Delay(300);
+        Check(window.WindowState == WindowState.Normal, "Enter toggles maximized mode back to normal repeatedly");
         window.WindowState = WindowState.Maximized; await Task.Delay(300); Invoke("ToggleFullscreen"); await Task.Delay(300);
-        SendEscape(); await Task.Delay(500);
-        Check(!Field<bool>("fullscreen") && window.WindowState == WindowState.Normal, "Escape from fullscreen entered while maximized restores normal window");
+        SendEnter(); await Task.Delay(500);
+        Check(!Field<bool>("fullscreen") && window.WindowState == WindowState.Normal, "Enter from fullscreen entered while maximized restores normal window");
+        SendEnter(); await Task.Delay(300);
+        Check(Field<bool>("fullscreen"), "fullscreen entered from maximized is remembered as fullscreen");
+        SendEnter(); await Task.Delay(300);
+        Check(!Field<bool>("fullscreen") && window.WindowState == WindowState.Normal, "restored fullscreen toggles back to normal");
         Check(!ContainsGrip(window), "no resize-grip control");
         Console.WriteLine("Native Windows input and fullscreen smoke checks passed.");
     }
@@ -166,7 +191,7 @@ static class Smoke
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++) if (ContainsGrip(VisualTreeHelper.GetChild(root, i))) return true;
         return false;
     }
-    static void SendEscape() { keybd_event(0x1B, 0, 0, UIntPtr.Zero); keybd_event(0x1B, 0, 2, UIntPtr.Zero); }
+    static void SendEnter() { keybd_event(0x0D, 0, 0, UIntPtr.Zero); keybd_event(0x0D, 0, 2, UIntPtr.Zero); }
     static void SaveOverlay(Grid input) => SaveElement(input, "selection");
     static void SaveElement(FrameworkElement element, string name)
     {

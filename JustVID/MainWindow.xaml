@@ -39,7 +39,7 @@
    </Grid>
   </Grid>
   <Popup x:Name="FullscreenControls" PlacementTarget="{Binding ElementName=RootLayout}" Placement="Relative" StaysOpen="True" AllowsTransparency="False" PopupAnimation="None">
-   <Border x:Name="FullscreenControlHost" Background="{DynamicResource Surface}" />
+   <Border x:Name="FullscreenControlHost" MouseLeave="FullscreenControlsLeave" Background="{DynamicResource Surface}" />
   </Popup>
   <Popup x:Name="PreviewPopup" PlacementTarget="{Binding ElementName=Timeline}" Placement="Relative" AllowsTransparency="True" IsHitTestVisible="False" PopupAnimation="None">
    <Border Background="{DynamicResource Surface}" CornerRadius="8" Padding="4" BorderThickness="1" BorderBrush="{DynamicResource TrackColor}"><StackPanel><Grid Width="168" Height="95" Background="Black"><local:VideoEngineView x:Name="PreviewPlayer" IsMuted="True" PreviewMode="True" MediaOpened="PreviewOpened" MediaFailed="PreviewFailed"><TextBlock x:Name="PreviewStatus" Text="…" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/></local:VideoEngineView></Grid><TextBlock x:Name="PreviewTime" HorizontalAlignment="Center" Margin="0,4,0,1" Foreground="{DynamicResource Ink}" FontSize="11"/></StackPanel></Border>
