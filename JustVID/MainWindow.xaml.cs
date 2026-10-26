@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
-using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -15,7 +14,8 @@ public partial class MainWindow : Window
 {
     readonly DispatcherTimer fullscreenIdle = new() { Interval = TimeSpan.FromMilliseconds(100) };
     Point lastPointer;
-    long controlsActivity;
+    int subtitleScale = 100, subtitleMargin;
+    string? subtitleFile;
     readonly DispatcherTimer clock = new() { Interval = TimeSpan.FromMilliseconds(250) };
     readonly DispatcherTimer previewDelay = new() { Interval = TimeSpan.FromMilliseconds(180) };
     readonly DispatcherTimer previewRelease = new() { Interval = TimeSpan.FromSeconds(2) };
@@ -42,22 +42,22 @@ public partial class MainWindow : Window
         previewDelay.Tick += (_, _) => { previewDelay.Stop(); ShowPreview(); };
         previewRelease.Tick += (_, _) => { previewRelease.Stop(); ReleasePreview(); };
         Loaded += (_, _) => {
-            try { if (File.Exists(settingsPath)) { var s = JsonSerializer.Deserialize<Settings>(File.ReadAllText(settingsPath)); if (s != null) { Volume.Value = Math.Clamp(s.Volume, 0, 1); light = s.Light; ApplyTheme(); } } } catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { }
+            try { if (File.Exists(settingsPath)) { var s = JsonSerializer.Deserialize<Settings>(File.ReadAllText(settingsPath)); if (s != null) { Volume.Value = Math.Clamp(s.Volume, 0, 1); light = s.Light; subtitleScale = s.SubtitleScale <= 0 ? 100 : Math.Clamp(s.SubtitleScale, 50, 200); subtitleMargin = Math.Clamp(s.SubtitleMargin, 0, 300); Player.ConfigureSubtitles(subtitleScale, subtitleMargin, null); ApplyTheme(); } } } catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { }
             var args = Environment.GetCommandLineArgs(); if (args.Length > 1 && File.Exists(args[1])) OpenFile(args[1]);
         };
         Closed += (_, _) => {
             SettingsPopup.IsOpen = false; fullscreenIdle.Stop(); FullscreenControls.IsOpen = false; clock.Stop(); previewDelay.Stop(); previewRelease.Stop(); Player.Dispose(); PreviewPlayer.Dispose();
-            try { Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!); File.WriteAllText(settingsPath, JsonSerializer.Serialize(new Settings(light, Volume.Value))); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            try { Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!); File.WriteAllText(settingsPath, JsonSerializer.Serialize(new Settings(light, Volume.Value, subtitleScale, subtitleMargin))); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         };
-        SizeChanged += (_, _) => { Volume.Visibility = ActualWidth < 430 ? Visibility.Collapsed : Visibility.Visible; Clock.Visibility = ActualWidth < 330 ? Visibility.Collapsed : Visibility.Visible; FileName.Visibility = ActualWidth < 440 ? Visibility.Collapsed : Visibility.Visible; TitleBrand.Visibility = ActualWidth < 330 ? Visibility.Collapsed : Visibility.Visible; if (SettingsPopup.IsOpen) PositionSettings(); };
+        SizeChanged += (_, _) => { Volume.Visibility = ActualWidth < 430 ? Visibility.Collapsed : Visibility.Visible; ClockBadge.Visibility = ActualWidth < 410 ? Visibility.Collapsed : Visibility.Visible; FileName.Visibility = ActualWidth < 440 ? Visibility.Collapsed : Visibility.Visible; TitleBrand.Visibility = ActualWidth < 330 ? Visibility.Collapsed : Visibility.Visible; if (SettingsPopup.IsOpen) PositionSettings(); };
     }
-    record Settings(bool Light, double Volume);
+    record Settings(bool Light, double Volume, int SubtitleScale = 100, int SubtitleMargin = 0);
     void OpenClick(object sender, RoutedEventArgs e) { var dialog = new OpenFileDialog { Filter = "Video|*.mp4;*.m4v;*.mov;*.wmv;*.avi;*.mkv;*.webm|All files|*.*" }; if (dialog.ShowDialog(this) == true) OpenFile(dialog.FileName); }
     void FileDrop(object sender, DragEventArgs e) { if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0) OpenFile(files[0]); }
     void OpenFile(string path)
     {
         clock.Stop(); ReleasePreview(); CancelSelection(); ready = false; playing = false; Timeline.IsEnabled = false; StopButton.IsEnabled = true;
-        Player.Close(); crop = new(0, 0, 1, 1); FileName.Text = Path.GetFileName(path); EmptyLogo.Visibility = Visibility.Collapsed;
+        Player.Close(); subtitleFile = null; Player.ConfigureSubtitles(subtitleScale, subtitleMargin, null); crop = new(0, 0, 1, 1); FileName.Text = Path.GetFileName(path); EmptyLogo.Visibility = Visibility.Collapsed;
         source = new Uri(Path.GetFullPath(path)); Player.Source = source; Player.Visibility = Visibility.Visible; Player.Play(); playing = true; UpdatePlayIcon();
     }
     void MediaOpened(object sender, RoutedEventArgs e)
@@ -77,7 +77,8 @@ public partial class MainWindow : Window
     {
         clock.Stop(); CancelSelection(); ReleasePreview();
         ready = playing = seeking = false;
-        Player.Source = null; source = null;
+        if (Timeline.IsMouseCaptured) Timeline.ReleaseMouseCapture();
+        Player.Source = null; source = null; subtitleFile = null;
         Player.Visibility = Visibility.Hidden;
         crop = new(0, 0, 1, 1); viewport = Rect.Empty;
         FileName.Text = ""; EmptyLogo.Visibility = Visibility.Visible;
@@ -105,27 +106,56 @@ public partial class MainWindow : Window
         MuteButton.ToolTip = silent ? "음소거 해제 / Unmute (M)" : $"볼륨 / Volume {Player.Volume:P0} (M)";
     }
     static string Time(double seconds) => TimeSpan.FromSeconds(Math.Max(0, seconds)).ToString(seconds >= 3600 ? @"h\:mm\:ss" : @"m\:ss");
-    void UpdateClock() => Clock.Text = $"{Time(Player.Position.TotalSeconds)} / {Time(Timeline.Maximum)}";
-    void SeekChanged(object sender, RoutedPropertyChangedEventArgs<double> e) { if (ready && !updating) { Player.Position = TimeSpan.FromSeconds(e.NewValue); UpdateClock(); } }
-    void SeekStart(object sender, MouseButtonEventArgs e) { seeking = true; }
-    void SeekEnd(object sender, MouseButtonEventArgs e) { seeking = false; }
+    void UpdateClock() => Clock.Text = $"{Time(seeking ? Timeline.Value : Player.Position.TotalSeconds)} / {Time(ready ? Timeline.Maximum : 0)}";
+    void SeekChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!ready || updating) return;
+        if (!seeking) Player.Position = TimeSpan.FromSeconds(e.NewValue);
+        UpdateClock();
+    }
+    void SetSeekDraft(MouseEventArgs e)
+    {
+        Timeline.Value = Math.Clamp((e.GetPosition(Timeline).X - 15) / Math.Max(1, Timeline.ActualWidth - 30), 0, 1) * Timeline.Maximum;
+        UpdateClock();
+    }
+    void SeekStart(object sender, MouseButtonEventArgs e)
+    {
+        if (!ready) return;
+        seeking = true; previewDelay.Stop(); PreviewPopup.IsOpen = false;
+        Timeline.CaptureMouse(); SetSeekDraft(e); e.Handled = true;
+    }
+    void SeekEnd(object sender, MouseButtonEventArgs e)
+    {
+        if (!seeking) return;
+        SetSeekDraft(e);
+        double target = Timeline.Value;
+        seeking = false;
+        if (Timeline.IsMouseCaptured) Timeline.ReleaseMouseCapture();
+        Player.Position = TimeSpan.FromSeconds(target); UpdateClock(); e.Handled = true;
+    }
+    void SeekCaptureLost(object sender, MouseEventArgs e)
+    {
+        if (!seeking) return;
+        seeking = false; updating = true; Timeline.Value = Player.Position.TotalSeconds; updating = false; UpdateClock();
+    }
     void PreviewMove(object sender, MouseEventArgs e)
     {
         if (!ready) return;
+        if (seeking) { SetSeekDraft(e); return; }
         var p = e.GetPosition(Timeline); previewTarget = Math.Clamp((p.X - 10) / Math.Max(1, Timeline.ActualWidth - 20), 0, 1) * Timeline.Maximum;
         PreviewTime.Text = Time(previewTarget); PreviewPopup.HorizontalOffset = Math.Clamp(p.X - 88, 0, Math.Max(0, Timeline.ActualWidth - 178)); PreviewPopup.VerticalOffset = -134;
         previewRelease.Stop(); if (!previewDelay.IsEnabled) previewDelay.Start();
     }
     void ShowPreview()
     {
-        if (!Timeline.IsMouseOver || source == null) return;
+        if (!Timeline.IsMouseOver || source == null || seeking) return;
         PreviewPopup.IsOpen = true;
         if (PreviewPlayer.Source == null) { PreviewStatus.Text = "…"; PreviewStatus.Visibility = Visibility.Visible; PreviewPlayer.Source = source; PreviewPlayer.Play(); }
         else if (previewReady) PreviewPlayer.Position = TimeSpan.FromSeconds(previewTarget);
     }
     void PreviewOpened(object sender, RoutedEventArgs e) { previewReady = true; PreviewPlayer.Pause(); PreviewPlayer.Position = TimeSpan.FromSeconds(previewTarget); PreviewStatus.Visibility = Visibility.Collapsed; }
     void PreviewFailed(object sender, EventArgs e) { previewReady = false; PreviewStatus.Text = "미리보기 없음 / Unavailable"; PreviewStatus.Visibility = Visibility.Visible; }
-    void PreviewLeave(object sender, MouseEventArgs e) { seeking = false; previewDelay.Stop(); PreviewPopup.IsOpen = false; previewRelease.Start(); }
+    void PreviewLeave(object sender, MouseEventArgs e) { previewDelay.Stop(); PreviewPopup.IsOpen = false; previewRelease.Start(); }
     void ReleasePreview() { previewDelay.Stop(); previewRelease.Stop(); PreviewPopup.IsOpen = false; PreviewPlayer.Close(); PreviewPlayer.Source = null; previewReady = false; }
     void LayoutVideo(object sender, SizeChangedEventArgs e) { CancelSelection(); ArrangeVideo(); }
     void ArrangeVideo()
@@ -168,9 +198,10 @@ public partial class MainWindow : Window
     void OpenSettings()
     {
         CancelSelection(); ReleasePreview(); HideFullscreenControls();
-        AppearancePanel.Visibility = Visibility.Visible; InfoPanel.Visibility = Visibility.Collapsed;
+        AppearancePanel.Visibility = Visibility.Visible; InfoPanel.Visibility = SubtitlePanel.Visibility = Visibility.Collapsed;
+        SubtitleSize.Value = subtitleScale; SubtitleMargin.Value = subtitleMargin; UpdateSubtitleDraft();
         PositionSettings(); UpdateSettingsTabs(); UpdateThemeChoices();
-        SettingsAbout.Text = $"JustVID  ·  1.3.0  ·  {Publisher}";
+        SettingsAbout.Text = $"JustVID  ·  1.4.0  ·  {Publisher}";
         RefreshMediaInformation(); SettingsPopup.IsOpen = true;
         Dispatcher.BeginInvoke(new Action(() => { if (SettingsPopup.IsOpen) SettingsCloseButton.Focus(); }));
     }
@@ -178,7 +209,7 @@ public partial class MainWindow : Window
     {
         SettingsBackdrop.Width = Math.Max(1, ActualWidth); SettingsBackdrop.Height = Math.Max(1, ActualHeight);
         SettingsCard.Width = Math.Max(120, Math.Min(520, ActualWidth - 32));
-        SettingsCard.Height = Math.Max(80, Math.Min(InfoPanel.Visibility == Visibility.Visible ? 520 : 340, ActualHeight - 32));
+        SettingsCard.Height = Math.Max(80, Math.Min(AppearancePanel.Visibility == Visibility.Visible ? 340 : 550, ActualHeight - 32));
         SettingsCard.MaxHeight = Math.Max(80, ActualHeight - 32);
     }
     void SettingsCloseClick(object sender, RoutedEventArgs e) => CloseSettings();
@@ -190,13 +221,36 @@ public partial class MainWindow : Window
         // Settings uses its own focus scope; Enter/Space must not toggle playback or window mode.
     }
     void AppearanceClick(object sender, RoutedEventArgs e)
-    { AppearancePanel.Visibility = Visibility.Visible; InfoPanel.Visibility = Visibility.Collapsed; PositionSettings(); UpdateSettingsTabs(); }
+    { AppearancePanel.Visibility = Visibility.Visible; InfoPanel.Visibility = SubtitlePanel.Visibility = Visibility.Collapsed; PositionSettings(); UpdateSettingsTabs(); }
     void InfoClick(object sender, RoutedEventArgs e)
-    { AppearancePanel.Visibility = Visibility.Collapsed; InfoPanel.Visibility = Visibility.Visible; PositionSettings(); UpdateSettingsTabs(); RefreshMediaInformation(); }
+    { AppearancePanel.Visibility = SubtitlePanel.Visibility = Visibility.Collapsed; InfoPanel.Visibility = Visibility.Visible; PositionSettings(); UpdateSettingsTabs(); RefreshMediaInformation(); }
     void UpdateSettingsTabs()
     {
         AppearanceTab.Background = AppearancePanel.Visibility == Visibility.Visible ? (Brush)Resources["Hover"] : Brushes.Transparent;
         InfoTab.Background = InfoPanel.Visibility == Visibility.Visible ? (Brush)Resources["Hover"] : Brushes.Transparent;
+        SubtitleTab.Background = SubtitlePanel.Visibility == Visibility.Visible ? (Brush)Resources["Hover"] : Brushes.Transparent;
+    }
+    void SubtitleClick(object sender, RoutedEventArgs e)
+    { AppearancePanel.Visibility = InfoPanel.Visibility = Visibility.Collapsed; SubtitlePanel.Visibility = Visibility.Visible; PositionSettings(); UpdateSettingsTabs(); }
+    void SubtitleDraftChanged(object sender, RoutedPropertyChangedEventArgs<double> e) => UpdateSubtitleDraft();
+    void UpdateSubtitleDraft()
+    {
+        if (SubtitleSizeLabel == null || SubtitleMarginLabel == null || SubtitleSample == null || SubtitleMargin == null) return;
+        SubtitleSizeLabel.Text = $"{SubtitleSize.Value:0}%"; SubtitleMarginLabel.Text = $"{SubtitleMargin.Value:0} px";
+        SubtitleSample.FontSize = Math.Clamp(18 * SubtitleSize.Value / 100, 9, 36);
+        SubtitleSample.Margin = new Thickness(0, 0, 0, Math.Min(12, SubtitleMargin.Value / 25));
+        SubtitleFileLabel.Text = subtitleFile == null ? "내장 자막 또는 자동 검색 자막" : Path.GetFileName(subtitleFile);
+    }
+    void SubtitleFileClick(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog { Filter = "Subtitles|*.srt;*.ass;*.ssa;*.vtt|All files|*.*" };
+        if (dialog.ShowDialog(this) == true) { subtitleFile = dialog.FileName; UpdateSubtitleDraft(); }
+    }
+    void SubtitleApplyClick(object sender, RoutedEventArgs e)
+    {
+        subtitleScale = (int)SubtitleSize.Value; subtitleMargin = (int)SubtitleMargin.Value;
+        ReleasePreview();
+        if (Player.ConfigureSubtitles(subtitleScale, subtitleMargin, subtitleFile)) { ready = false; Timeline.IsEnabled = false; }
     }
     void LightThemeClick(object sender, RoutedEventArgs e) { light = true; ApplyTheme(); }
     void DarkThemeClick(object sender, RoutedEventArgs e) { light = false; ApplyTheme(); }
@@ -218,10 +272,11 @@ public partial class MainWindow : Window
         var colors = light ? new[] { "#F5F6F7", "#202428", "#626A72", "#B9C3CD", "#E4E8EC" } : new[] { "#17191C", "#F3F4F5", "#9CA3AB", "#3A3E44", "#30353A" };
         Resources["VideoBackground"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#E7EAED" : "#101214"));
         var keys = new[] { "Surface", "Ink", "Muted", "TrackColor", "Hover" }; for (int i = 0; i < keys.Length; i++) Resources[keys[i]] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colors[i]));
-        Resources["ControlInk"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#FFFFFF" : "#F3F4F5"));
+        Resources["ControlInk"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#C5E6A7" : "#F3F4F5"));
         Resources["ControlSurface"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#D3DAE1" : "#17191C"));
-        Resources["ThumbEdge"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#A3AFBB" : "#68717C"));
+        Resources["ThumbEdge"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#8EAB78" : "#68717C"));
         Resources["Card"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#FFFFFF" : "#20242A"));
+        Resources["TimeSurface"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#C5D0C4" : "#282E34"));
         UpdateThemeChoices(); UpdateSettingsTabs();
     }
     void Minimize(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
@@ -257,11 +312,18 @@ public partial class MainWindow : Window
         frame.ExitFullscreen();
         changingViewMode = false;
     }
+    double FullscreenBarHeight => ControlBar.ActualHeight > 0 ? ControlBar.ActualHeight + ControlBar.Margin.Top + ControlBar.Margin.Bottom : 85;
     void PositionFullscreenControls()
     {
         FullscreenControlHost.Width = Math.Max(1, ActualWidth);
         FullscreenControls.HorizontalOffset = 0;
-        FullscreenControls.VerticalOffset = Math.Max(0, ActualHeight - 75);
+        FullscreenControls.VerticalOffset = Math.Max(0, ActualHeight - FullscreenBarHeight);
+    }
+    bool ContainsPointer(FrameworkElement element, Point local, double tolerance)
+    {
+        if (!element.IsVisible || element.ActualWidth <= 0 || element.ActualHeight <= 0) return false;
+        var bounds = new Rect(PointFromScreen(element.PointToScreen(new Point())), PointFromScreen(element.PointToScreen(new Point(element.ActualWidth, element.ActualHeight))));
+        bounds.Inflate(tolerance, tolerance); return bounds.Contains(local);
     }
     void UpdateFullscreenControls()
     {
@@ -269,30 +331,21 @@ public partial class MainWindow : Window
         if (SettingsPopup.IsOpen) { HideFullscreenControls(); return; }
         var pointer = new Point(cursor.X, cursor.Y);
         var local = PointFromScreen(pointer);
-        bool moved = pointer != lastPointer;
-        lastPointer = pointer;
-        bool inWindow = local.X >= 0 && local.X < ActualWidth && local.Y >= 0 && local.Y < ActualHeight;
+        bool moved = pointer != lastPointer; lastPointer = pointer;
         bool appActive = IsActive || Window.GetWindow(InputArea)?.IsActive == true || FullscreenControlHost.IsKeyboardFocusWithin;
         if (!appActive) { HideFullscreenControls(); return; }
-        long now = Stopwatch.GetTimestamp();
-        bool inControls = inWindow && local.Y >= ActualHeight - 75;
-        bool dragging = ControlBar.IsMouseCaptureWithin || seeking;
-        if (FullscreenControls.IsOpen && !inControls && !dragging) { HideFullscreenControls(true); return; }
-        if (moved && inControls)
+        bool inWindow = local.X >= 0 && local.X < ActualWidth && local.Y >= 0 && local.Y < ActualHeight;
+        bool over = ContainsPointer(FullscreenControlHost, local, 12) || (PreviewPopup.IsOpen && PreviewPopup.Child is FrameworkElement child && ContainsPointer(child, local, 6));
+        bool dragging = Timeline.IsMouseCaptured || ControlBar.IsMouseCaptureWithin || seeking;
+        if (FullscreenControls.IsOpen)
         {
-            controlsActivity = now; PositionFullscreenControls(); FullscreenControls.IsOpen = true;
+            // A child/popup boundary is not a real pointer exit. Keep a small edge allowance.
+            if (!over && !dragging) HideFullscreenControls(true);
         }
-        if (!FullscreenControls.IsOpen) return;
-        if (ControlBar.IsMouseCaptureWithin || seeking || origin != null || (inWindow && Mouse.LeftButton == MouseButtonState.Pressed)) controlsActivity = now;
-        if ((now - controlsActivity) / (double)Stopwatch.Frequency >= 2.5)
-        {
-            HideFullscreenControls(true);
-        }
+        else if (moved && inWindow && local.Y >= ActualHeight - FullscreenBarHeight)
+        { PositionFullscreenControls(); FullscreenControls.IsOpen = true; }
     }
-    void FullscreenControlsLeave(object sender, MouseEventArgs e)
-    {
-        if (fullscreen && !ControlBar.IsMouseCaptureWithin && !seeking) HideFullscreenControls(true);
-    }
+    void FullscreenControlsLeave(object sender, MouseEventArgs e) => UpdateFullscreenControls();
     void HideFullscreenControls(bool restoreFocus = false)
     {
         if (!FullscreenControls.IsOpen) return;

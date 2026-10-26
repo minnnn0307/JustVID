@@ -1,5 +1,8 @@
 using System.IO;
 using System.Reflection;
+using System.Diagnostics;
+using LibVLCSharp.Shared;
+using VlcPlayer = LibVLCSharp.Shared.MediaPlayer;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -49,7 +52,7 @@ static class Smoke
         Click(Field<Button>("LightThemeChoice"));
         await Wait(() => Field<bool>("light"), "light theme click did not apply");
         Check(Field<bool>("light"), "light theme can be selected in settings");
-        Check(((SolidColorBrush)window.Resources["ControlInk"]).Color == Colors.White, "light playback icons and slider thumbs use white ink");
+        Check(((SolidColorBrush)window.Resources["ControlInk"]).Color == (Color)ColorConverter.ConvertFromString("#C5E6A7"), "light playback icons and slider thumbs use pale lime ink");
         SaveElement(Field<Grid>("SettingsBackdrop"), "settings-light");
         Click(Field<Button>("InfoTab")); await Task.Delay(150);
         Check(Field<TextBlock>("InfoEmpty").IsVisible, "media information shows an empty state before opening a video");
@@ -129,8 +132,14 @@ static class Smoke
         Check(!controls.IsOpen, "controls hide immediately when mouse leaves their area");
         Move(window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight - 20)));
         await Wait(() => controls.IsOpen, "controls did not reappear after returning to bottom");
-        await Wait(() => !controls.IsOpen, "fullscreen controls did not hide after inactivity");
-        Check(!controls.IsOpen, "fullscreen controls auto-hide after inactivity");
+        await Task.Delay(2800);
+        Check(controls.IsOpen, "fullscreen controls remain visible while pointer rests inside");
+        Move(window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight - Field<Grid>("ControlBar").ActualHeight - Field<Grid>("ControlBar").Margin.Top - Field<Grid>("ControlBar").Margin.Bottom - 6)));
+        await Task.Delay(250);
+        Check(controls.IsOpen, "fullscreen control edge allowance prevents premature hiding");
+        Move(window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight / 2)));
+        await Task.Delay(250);
+        Check(!controls.IsOpen, "fullscreen controls hide only after leaving the full interaction region");
         keybd_event(0x1B, 0, 0, UIntPtr.Zero); keybd_event(0x1B, 0, 2, UIntPtr.Zero); await Task.Delay(150);
         Check(Field<bool>("fullscreen"), "Escape no longer changes window mode");
         SendEnter(); await Task.Delay(500); GetWindowRect(handle, out actual);
@@ -170,6 +179,22 @@ static class Smoke
         SendEnter(); await Task.Delay(300);
         Check(!Field<bool>("fullscreen") && window.WindowState == WindowState.Normal, "restored fullscreen toggles back to normal");
         Check(!ContainsGrip(window), "no resize-grip control");
+        Click(Field<Button>("SettingsButton")); await Task.Delay(300);
+        Click(Field<Button>("SubtitleTab")); await Task.Delay(200);
+        Field<Slider>("SubtitleSize").Value = 150; Field<Slider>("SubtitleMargin").Value = 30;
+        typeof(MainWindow).GetField("subtitleFile", fields)!.SetValue(window, Path.Combine(AppContext.BaseDirectory, "subtitle.srt"));
+        Invoke("UpdateSubtitleDraft");
+        long beforeSubtitles = (long)view.Position.TotalMilliseconds;
+        Click(Field<Button>("SubtitleApplyButton"));
+        await Wait(() => Field<bool>("ready"), "subtitle settings did not resume video");
+        await Task.Delay(500);
+        Check(view.SubtitleScale == 150 && view.SubtitleMargin == 30, "subtitle settings apply selected size and bottom position");
+        var subtitlePlayer = (VlcPlayer)typeof(VideoEngineView).GetField("playback", fields)!.GetValue(view)!;
+        await Wait(() => subtitlePlayer.Spu >= 0, "external subtitle track did not activate");
+        Check(subtitlePlayer.Spu >= 0, "subtitle file is active after settings apply");
+        Check(Math.Abs(view.Position.TotalMilliseconds - beforeSubtitles) < 3000, "subtitle application preserves playback position");
+        SaveElement(Field<Grid>("SettingsBackdrop"), "settings-subtitles");
+        SendEscape(); await Task.Delay(200);
         Invoke("ToggleFullscreen"); await Task.Delay(300);
         Move(window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight / 2))); await Task.Delay(150);
         Move(window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight - 20)));
@@ -187,7 +212,48 @@ static class Smoke
         Click(Field<Button>("SettingsButton")); await Task.Delay(150); Click(Field<Button>("InfoTab")); await Task.Delay(100);
         Check(Field<TextBlock>("InfoEmpty").IsVisible && Field<ItemsControl>("InfoSections").Items.Count == 0, "stop clears stale media information");
         SendEscape(); await Task.Delay(150);
-        Console.WriteLine("Native Windows input and fullscreen smoke checks passed.");
+        await AudioSeekProbe(view);
+        Console.WriteLine("Native Windows input, subtitle and decoded audio checks passed.");
+    }
+    static async Task AudioSeekProbe(VideoEngineView view)
+    {
+        typeof(MainWindow).GetMethod("OpenFile", fields)!.Invoke(window, new object[] { Path.Combine(AppContext.BaseDirectory, "audio-fixture.mp4") });
+        await Wait(() => Field<bool>("ready"), "audio fixture did not open");
+        var engine = (VlcPlayer)typeof(VideoEngineView).GetField("playback", fields)!.GetValue(view)!;
+        var media = (Media)typeof(VideoEngineView).GetField("media", fields)!.GetValue(view)!;
+        long packets = 0;
+        engine.Stop();
+        engine.SetAudioFormat("S16N", 48000, 1);
+        engine.SetAudioCallbacks((_, samples, count, _) =>
+        {
+            for (int i = 0; i < Math.Min(count, 32); i++)
+                if (Math.Abs((int)Marshal.ReadInt16(samples, i * 2)) > 10) { Interlocked.Increment(ref packets); break; }
+            Thread.Sleep(Math.Max(1, (int)(count / 48d)));
+        }, null, null, null, null);
+        engine.Play(media);
+        await Wait(() => Interlocked.Read(ref packets) > 2, "decoded audio samples did not arrive");
+        var timeline = Field<Slider>("Timeline");
+        window.Activate();
+        long initialTime = engine.Time;
+        long before = Interlocked.Read(ref packets);
+        Move(timeline.PointToScreen(new Point(timeline.ActualWidth * .25, timeline.ActualHeight / 2)));
+        mouse_event(2, 0, 0, 0, UIntPtr.Zero); await Task.Delay(150);
+        Move(timeline.PointToScreen(new Point(timeline.ActualWidth * .5, -14))); await Task.Delay(350);
+        Check(timeline.IsMouseCaptured && Field<bool>("seeking"), "timeline captures the mouse outside its thin painted track");
+        Check(engine.Time < initialTime + 2500, "timeline drag does not flood native audio with intermediate seeks");
+        Check(Interlocked.Read(ref packets) > before, "decoded non-silent audio continues while dragging");
+        Check(Field<VideoEngineView>("PreviewPlayer").Source == null, "no preview decoder is opened during scrubbing");
+        before = Interlocked.Read(ref packets);
+        var elapsed = Stopwatch.StartNew();
+        mouse_event(4, 0, 0, 0, UIntPtr.Zero);
+        await Wait(() => engine.Time >= 4500 && Interlocked.Read(ref packets) > before, "audio did not resume after committed seek");
+        Check(elapsed.ElapsedMilliseconds < 1500, $"non-silent decoded audio resumes after seek ({elapsed.ElapsedMilliseconds} ms)");
+        Check(!timeline.IsMouseCaptured && !Field<bool>("seeking"), "timeline releases capture after outside mouse-up");
+        Move(timeline.PointToScreen(new Point(timeline.ActualWidth * .55, timeline.ActualHeight / 2)));
+        await Wait(() => Field<VideoEngineView>("PreviewPlayer").Source != null, "preview did not open after normal hover");
+        before = Interlocked.Read(ref packets); await Task.Delay(350);
+        Check(!engine.Mute && Interlocked.Read(ref packets) > before, "preview does not mute or stall primary decoded audio");
+        typeof(MainWindow).GetMethod("StopPlayback", fields)!.Invoke(window, null);
     }
     static async Task VerifyCropPixels(Grid input, double x, double y, double width, double height, string name)
     {
