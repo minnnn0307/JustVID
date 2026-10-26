@@ -1,4 +1,4 @@
-#define AppVersion "1.4.1"
+#define AppVersion "1.5.0"
 [Setup]
 AppId={{E83A68A1-EC40-42C3-A2FB-713A581B79B5}
 AppName=JustVID
