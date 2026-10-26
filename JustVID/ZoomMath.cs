@@ -2,6 +2,15 @@ namespace JustVID;
 public readonly record struct Region(double X, double Y, double Width, double Height);
 public static class ZoomMath
 {
+    // Native codec cropping uses integral source pixels, including 1-pixel crops.
+    public static (int X, int Y, int Width, int Height) Pixels(Region crop, int width, int height)
+    {
+        int x = Math.Clamp((int)Math.Floor(crop.X * width), 0, width - 1);
+        int y = Math.Clamp((int)Math.Floor(crop.Y * height), 0, height - 1);
+        int w = Math.Clamp((int)Math.Ceiling(crop.Width * width), 1, width - x);
+        int h = Math.Clamp((int)Math.Ceiling(crop.Height * height), 1, height - y);
+        return (x, y, w, h);
+    }
     // Maps a selection within the displayed viewport into the current source crop.
     public static Region Select(Region current, double x1, double y1, double x2, double y2, double width, double height)
     {

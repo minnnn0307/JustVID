@@ -9,4 +9,7 @@ var nested = ZoomMath.Select(crop, 0, 0, 50, 50, 100, 100);
 Check(nested == new Region(.25, .25, .25, .25));
 var clamped = ZoomMath.Select(full, -20, -10, 200, 120, 100, 100);
 Check(clamped == full);
+Check(ZoomMath.Pixels(new Region(.5, .5, .00001, .00001), 1920, 1080) == (960, 540, 1, 1));
+Check(ZoomMath.Pixels(full, 1920, 1080) == (0, 0, 1920, 1080));
+Check(ZoomMath.Pixels(new Region(.9999, .9999, .5, .5), 1920, 1080) == (1919, 1079, 1, 1));
 Console.WriteLine("Zoom geometry checks passed.");

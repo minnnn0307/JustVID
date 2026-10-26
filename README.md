@@ -1,6 +1,6 @@
 # JustVID
 
-Windows 10/11 x64용 동영상 플레이어. 버전 1.0.0, 이후 Semantic Versioning 적용. 앱 이름과 창 제목에는 버전을 붙이지 않습니다.
+Windows 10/11 x64용 동영상 플레이어. 버전 1.0.1, 이후 Semantic Versioning 적용. 앱 이름과 창 제목에는 버전을 붙이지 않습니다.
 
 ## 사용
 
@@ -22,7 +22,7 @@ Windows 및 .NET 8 SDK:
 ```powershell
 dotnet run --project tests/JustVID.Tests.csproj -c Release
 dotnet run --project JustVID/JustVID.csproj
-dotnet publish JustVID/JustVID.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o artifacts/publish
+dotnet publish JustVID/JustVID.csproj -c Release -r win-x64 --self-contained true -o artifacts/publish
 ```
 
 설치 프로그램은 Inno Setup 6에서 `installer/JustVID.iss`를 컴파일합니다. GitHub Actions의 Windows build가 기하 계산 테스트, 앱 빌드, 설치 파일 생성을 수행하며 Artifacts에서 결과물을 다운로드할 수 있습니다. 자동 공개 릴리스는 만들지 않습니다.
@@ -31,7 +31,9 @@ dotnet publish JustVID/JustVID.csproj -c Release -r win-x64 --self-contained tru
 
 ## 리소스 및 재생 범위
 
-WPF MediaElement와 Windows 기본 미디어 기능을 사용합니다. 별도 웹 런타임이나 코덱 묶음을 포함하지 않습니다. 파일 형식 목록은 선택 필터이며 실제 재생 지원은 Windows에 설치된 코덱에 달려 있습니다. MP4 H.264/AAC를 우선 확인하고, HEVC/MKV/WebM은 시스템에 따라 지원이 다를 수 있습니다. Windows N은 Media Feature Pack이 필요할 수 있습니다.
+LibVLCSharp.WPF 3.9.3과 VideoLAN.LibVLC.Windows 3.0.21을 포함합니다. Windows에 별도 코덱을 설치하지 않고 MP4, MKV, WebM, H.264/H.265, VP8/VP9 등 LibVLC가 지원하는 로컬 영상을 재생합니다. 손상 파일, DRM 콘텐츠 및 일부 특수 포맷은 재생하지 못할 수 있습니다. 하드웨어 디코딩을 요청하며 지원하지 않는 경우 엔진의 소프트웨어 디코딩을 사용합니다. 내장 코덱 때문에 이전 Windows 기본 엔진 방식보다 배포 크기가 커집니다. 실행할 때 코덱을 다운로드하지 않습니다.
+
+라이트모드에서는 빈 재생창과 영상 바깥 여백을 밝은 회색으로 표시합니다. 실제 영상의 픽셀 색은 변경하지 않습니다. 음량은 스피커의 음소거/작은 음량/큰 음량 표시와 연동되며 볼륨을 올리면 음소거가 해제됩니다. 크기 조절 그립은 창의 오른쪽 아래 모서리에 고정합니다.
 
 미리보기는 요청 시에만 보조 디코더를 열고, 180ms 주기로 탐색 요청을 제한하며 마우스가 떠난 뒤 2초 후 해제합니다. 전체 영상의 썸네일을 사전 생성하지 않습니다. 미리보기 표시 속도와 정확도는 코덱/키프레임에 따라 다릅니다. CPU/메모리 사용량은 아직 측정하지 않았습니다.
 
@@ -40,8 +42,17 @@ WPF MediaElement와 Windows 기본 미디어 기능을 사용합니다. 별도 �
 CI의 컴파일 검증 외에 실제 Windows에서 다음을 확인해야 합니다:
 
 1. H.264/AAC 영상의 열기, 재생, 종료 후 재생, 일시정지, 탐색, 음소거 및 파일 교체.
-2. 재생/일시정지 중 재생바 미리보기, 빠른 마우스 이동, 미지원 파일 오류, 앱 종료 시 파일 잠금 해제.
+2. 재생/일시정지 중 재생바 미리보기, 빠른 마우스 이동, 미지원 파일 오류, 앱 종료 시 파일 잠금 해제. MP4/H.264, MKV/HEVC, WebM/VP9 및 AAC/AC3/Opus 음성 확인.
 3. 레터박스와 세로 영상에서 역방향 및 1픽셀 Ctrl 드래그, 중첩 확대, Ctrl+우클릭 복구, 선택 중 Esc.
 4. 작은 창/큰 창, 최대화/전체 화면, 다중 모니터 및 100/150/200% DPI에서 비율과 선택 좌표.
 5. 한국어/영어 설치 시 게시자, 앱 아이콘, 테마/볼륨 저장, 설치 및 제거.
 6. 작업 관리자에서 1080p/4K 재생 및 미리보기 전후 CPU/GPU/메모리 측정. 하드웨어와 코덱별 결과 기록.
+
+## 1.0.1 변경
+
+- Windows 시스템 코덱 의존성을 제거하고 LibVLC 런타임 및 디코더 동봉.
+- Grid 행 누락으로 타이틀바 아래에 나타나던 크기 조절 그립을 오른쪽 아래로 이동.
+- 벡터 스피커 아이콘의 음소거/저음량/고음량 상태 표시.
+- 라이트 테마의 재생창/레터박스 여백을 밝은 회색으로 변경.
+
+의존 라이선스와 소스 위치는 THIRD_PARTY_NOTICES.md에 기록합니다.

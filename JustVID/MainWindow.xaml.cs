@@ -26,7 +26,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Player.Volume = Volume.Value;
+        Player.Volume = Volume.Value; UpdateVolumeIcon();
         clock.Tick += (_, _) => { if (!ready || seeking) return; updating = true; Timeline.Value = Player.Position.TotalSeconds; updating = false; UpdateClock(); };
         previewDelay.Tick += (_, _) => { previewDelay.Stop(); ShowPreview(); };
         previewRelease.Tick += (_, _) => { previewRelease.Stop(); ReleasePreview(); };
@@ -35,7 +35,7 @@ public partial class MainWindow : Window
             var args = Environment.GetCommandLineArgs(); if (args.Length > 1 && File.Exists(args[1])) OpenFile(args[1]);
         };
         Closed += (_, _) => {
-            clock.Stop(); previewDelay.Stop(); previewRelease.Stop(); Player.Close(); PreviewPlayer.Close();
+            clock.Stop(); previewDelay.Stop(); previewRelease.Stop(); Player.Dispose(); PreviewPlayer.Dispose();
             try { Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!); File.WriteAllText(settingsPath, JsonSerializer.Serialize(new Settings(light, Volume.Value))); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         };
         SizeChanged += (_, _) => { Volume.Visibility = ActualWidth < 430 ? Visibility.Collapsed : Visibility.Visible; Clock.Visibility = ActualWidth < 330 ? Visibility.Collapsed : Visibility.Visible; FileName.Visibility = ActualWidth < 440 ? Visibility.Collapsed : Visibility.Visible; };
@@ -47,7 +47,7 @@ public partial class MainWindow : Window
     {
         clock.Stop(); ReleasePreview(); CancelSelection(); ready = false; playing = false; Timeline.IsEnabled = false;
         Player.Close(); crop = new(0, 0, 1, 1); FileName.Text = Path.GetFileName(path); OpenHint.Visibility = Visibility.Collapsed;
-        source = new Uri(Path.GetFullPath(path)); Player.Source = source; Player.Play(); playing = true; PlayButton.Content = "Ⅱ";
+        source = new Uri(Path.GetFullPath(path)); Player.Source = source; Player.Visibility = Visibility.Visible; Player.Play(); playing = true; PlayButton.Content = "Ⅱ";
     }
     void MediaOpened(object sender, RoutedEventArgs e)
     {
@@ -56,15 +56,24 @@ public partial class MainWindow : Window
         Timeline.IsEnabled = ready; ArrangeVideo(); clock.Start(); UpdateClock();
     }
     void MediaEnded(object sender, RoutedEventArgs e) { Player.Pause(); playing = false; PlayButton.Content = "▶"; }
-    void MediaFailed(object sender, ExceptionRoutedEventArgs e)
+    void MediaFailed(object sender, EventArgs e)
     {
-        clock.Stop(); ready = playing = false; Timeline.IsEnabled = false; Player.Close(); ReleasePreview(); OpenHint.Visibility = Visibility.Visible; PlayButton.Content = "▶";
-        MessageBox.Show(this, "영상을 열 수 없습니다. 파일 또는 Windows 코덱 지원을 확인하세요.\nUnable to open video. Check the file and Windows codec support.", "JustVID", MessageBoxButton.OK, MessageBoxImage.Information);
+        clock.Stop(); ready = playing = false; Timeline.IsEnabled = false; Player.Close(); Player.Visibility = Visibility.Hidden; ReleasePreview(); OpenHint.Visibility = Visibility.Visible; PlayButton.Content = "▶";
+        MessageBox.Show(this, "영상을 열 수 없습니다. 손상되었거나 지원하지 않는 파일일 수 있습니다.\nThe file may be damaged or unsupported.", "JustVID", MessageBoxButton.OK, MessageBoxImage.Information);
     }
     void ToggleClick(object sender, RoutedEventArgs e) => Toggle();
     void Toggle() { if (!ready) return; if (playing) Player.Pause(); else { if (Player.Position.TotalSeconds >= Timeline.Maximum - .05) Player.Position = TimeSpan.Zero; Player.Play(); } playing = !playing; PlayButton.Content = playing ? "Ⅱ" : "▶"; }
-    void VolumeChanged(object sender, RoutedPropertyChangedEventArgs<double> e) { if (Player != null) Player.Volume = e.NewValue; }
-    void MuteClick(object sender, RoutedEventArgs e) { Player.IsMuted = !Player.IsMuted; MuteButton.Opacity = Player.IsMuted ? .4 : 1; }
+    void VolumeChanged(object sender, RoutedPropertyChangedEventArgs<double> e) { if (Player != null) { Player.Volume = e.NewValue; if (e.NewValue > 0) Player.IsMuted = false; UpdateVolumeIcon(); } }
+    void MuteClick(object sender, RoutedEventArgs e) { Player.IsMuted = !Player.IsMuted; UpdateVolumeIcon(); }
+    void UpdateVolumeIcon()
+    {
+        if (VolumeOff == null || VolumeLow == null || VolumeHigh == null) return;
+        bool silent = Player.IsMuted || Player.Volume <= 0;
+        VolumeOff.Visibility = silent ? Visibility.Visible : Visibility.Collapsed;
+        VolumeLow.Visibility = !silent ? Visibility.Visible : Visibility.Collapsed;
+        VolumeHigh.Visibility = !silent && Player.Volume > .5 ? Visibility.Visible : Visibility.Collapsed;
+        MuteButton.ToolTip = silent ? "음소거 해제 / Unmute (M)" : $"볼륨 / Volume {Player.Volume:P0} (M)";
+    }
     static string Time(double seconds) => TimeSpan.FromSeconds(Math.Max(0, seconds)).ToString(seconds >= 3600 ? @"h\:mm\:ss" : @"m\:ss");
     void UpdateClock() => Clock.Text = $"{Time(Player.Position.TotalSeconds)} / {Time(Timeline.Maximum)}";
     void SeekChanged(object sender, RoutedPropertyChangedEventArgs<double> e) { if (ready && !updating) { Player.Position = TimeSpan.FromSeconds(e.NewValue); UpdateClock(); } }
@@ -85,33 +94,34 @@ public partial class MainWindow : Window
         else if (previewReady) PreviewPlayer.Position = TimeSpan.FromSeconds(previewTarget);
     }
     void PreviewOpened(object sender, RoutedEventArgs e) { previewReady = true; PreviewPlayer.Pause(); PreviewPlayer.Position = TimeSpan.FromSeconds(previewTarget); PreviewStatus.Visibility = Visibility.Collapsed; }
-    void PreviewFailed(object sender, ExceptionRoutedEventArgs e) { previewReady = false; PreviewStatus.Text = "미리보기 없음 / Unavailable"; PreviewStatus.Visibility = Visibility.Visible; }
+    void PreviewFailed(object sender, EventArgs e) { previewReady = false; PreviewStatus.Text = "미리보기 없음 / Unavailable"; PreviewStatus.Visibility = Visibility.Visible; }
     void PreviewLeave(object sender, MouseEventArgs e) { seeking = false; previewDelay.Stop(); PreviewPopup.IsOpen = false; previewRelease.Start(); }
     void ReleasePreview() { previewDelay.Stop(); previewRelease.Stop(); PreviewPopup.IsOpen = false; PreviewPlayer.Close(); PreviewPlayer.Source = null; previewReady = false; }
     void LayoutVideo(object sender, SizeChangedEventArgs e) { CancelSelection(); ArrangeVideo(); }
     void ArrangeVideo()
     {
-        if (Player.NaturalVideoWidth <= 0 || VideoArea.ActualHeight <= 0) return;
+        if (Player.NaturalVideoWidth <= 0 || Player.NaturalVideoHeight <= 0 || VideoArea.ActualHeight <= 0) return;
         double aspect = Player.NaturalVideoWidth * crop.Width / (Player.NaturalVideoHeight * crop.Height);
         double w = VideoArea.ActualWidth, h = w / aspect;
         if (h > VideoArea.ActualHeight) { h = VideoArea.ActualHeight; w = h * aspect; }
-        viewport = new Rect((VideoArea.ActualWidth - w) / 2, (VideoArea.ActualHeight - h) / 2, w, h);
-        Player.Width = w / crop.Width; Player.Height = h / crop.Height;
-        Player.Margin = new Thickness(viewport.X - crop.X * Player.Width, viewport.Y - crop.Y * Player.Height, 0, 0);
-        Player.Clip = new RectangleGeometry(new Rect(crop.X * Player.Width, crop.Y * Player.Height, w, h));
+        viewport = new Rect(0, 0, w, h);
+        Player.Width = w; Player.Height = h;
+        Player.Margin = new Thickness((VideoArea.ActualWidth - w) / 2, (VideoArea.ActualHeight - h) / 2, 0, 0);
+        Player.SetCrop(crop);
+
     }
     Point ClampPoint(Point p) => new(Math.Clamp(p.X, viewport.Left, viewport.Right), Math.Clamp(p.Y, viewport.Top, viewport.Bottom));
     void VideoDown(object sender, MouseButtonEventArgs e)
     {
-        if (!ready || !Keyboard.Modifiers.HasFlag(ModifierKeys.Control) || !viewport.Contains(e.GetPosition(VideoArea))) return;
-        origin = ClampPoint(e.GetPosition(VideoArea)); VideoArea.CaptureMouse(); Selection.Visibility = Visibility.Visible; DrawSelection(origin.Value); e.Handled = true;
+        if (!ready || !Keyboard.Modifiers.HasFlag(ModifierKeys.Control) || !viewport.Contains(e.GetPosition(InputArea))) return;
+        origin = ClampPoint(e.GetPosition(InputArea)); InputArea.CaptureMouse(); Selection.Visibility = Visibility.Visible; DrawSelection(origin.Value); e.Handled = true;
     }
     void DrawSelection(Point p) { if (origin is not Point start) return; Canvas.SetLeft(Selection, Math.Min(start.X, p.X)); Canvas.SetTop(Selection, Math.Min(start.Y, p.Y)); Selection.Width = Math.Max(1, Math.Abs(p.X - start.X)); Selection.Height = Math.Max(1, Math.Abs(p.Y - start.Y)); }
-    void VideoMove(object sender, MouseEventArgs e) { if (origin != null) DrawSelection(ClampPoint(e.GetPosition(VideoArea))); }
+    void VideoMove(object sender, MouseEventArgs e) { if (origin != null) DrawSelection(ClampPoint(e.GetPosition(InputArea))); }
     void VideoUp(object sender, MouseButtonEventArgs e)
     {
         if (origin is not Point start) return;
-        var end = ClampPoint(e.GetPosition(VideoArea));
+        var end = ClampPoint(e.GetPosition(InputArea));
         if ((end - start).Length > 0 && viewport.Width > 0 && viewport.Height > 0) {
             // A one-pixel selection is valid. Preserve the selected image's source aspect ratio.
             var next = ZoomMath.Select(crop, start.X - viewport.X, start.Y - viewport.Y, end.X - viewport.X, end.Y - viewport.Y, viewport.Width, viewport.Height);
@@ -120,17 +130,18 @@ public partial class MainWindow : Window
         CancelSelection(); ArrangeVideo(); e.Handled = true;
     }
     void SelectionLost(object sender, MouseEventArgs e) { origin = null; Selection.Visibility = Visibility.Collapsed; }
-    void CancelSelection() { origin = null; Selection.Visibility = Visibility.Collapsed; if (VideoArea.IsMouseCaptured) VideoArea.ReleaseMouseCapture(); }
+    void CancelSelection() { origin = null; Selection.Visibility = Visibility.Collapsed; if (InputArea.IsMouseCaptured) InputArea.ReleaseMouseCapture(); }
     void VideoRight(object sender, MouseButtonEventArgs e) { if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return; CancelSelection(); crop = new(0, 0, 1, 1); ArrangeVideo(); e.Handled = true; }
     void ThemeClick(object sender, RoutedEventArgs e)
     {
         var menu = new ContextMenu();
         foreach (var item in new[] { ("다크 / Dark", false), ("라이트 / Light", true) }) { var m = new MenuItem { Header = item.Item1, IsCheckable = true, IsChecked = light == item.Item2 }; m.Click += (_, _) => { light = item.Item2; ApplyTheme(); }; menu.Items.Add(m); }
-        menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = $"JustVID · 1.0.0 · {Publisher}", IsEnabled = false }); menu.IsOpen = true;
+        menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = $"JustVID · 1.0.1 · {Publisher}", IsEnabled = false }); menu.IsOpen = true;
     }
     void ApplyTheme()
     {
         var colors = light ? new[] { "#F5F6F7", "#202428", "#626A72", "#D4D9DE", "#E4E8EC" } : new[] { "#17191C", "#F3F4F5", "#9CA3AB", "#3A3E44", "#30353A" };
+        Resources["VideoBackground"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#E7EAED" : "#101214"));
         var keys = new[] { "Surface", "Ink", "Muted", "TrackColor", "Hover" }; for (int i = 0; i < keys.Length; i++) Resources[keys[i]] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colors[i]));
     }
     void Minimize(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
