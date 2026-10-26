@@ -25,7 +25,7 @@ static class Smoke
             catch (Exception error) { Console.Error.WriteLine(error); result = 1; }
             finally { keybd_event(0x11, 0, 2, UIntPtr.Zero); mouse_event(0x0004 | 0x0010, 0, 0, 0, UIntPtr.Zero); window?.Close(); app.Shutdown(result); }
         };
-        app.Run();
+        Environment.ExitCode = app.Run();
     }
     static async Task Wait(Func<bool> condition, string message)
     {
