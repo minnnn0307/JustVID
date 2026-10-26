@@ -204,7 +204,8 @@ static class Smoke
         Check(Math.Abs(view.Position.TotalMilliseconds - beforeSubtitles) < 3000, "subtitle application preserves playback position");
         SaveElement(Field<Grid>("SettingsBackdrop"), "settings-subtitles");
         SendEscape(); await Task.Delay(300);
-        await Wait(() => { var bounds = CaptureVideo(input).WhiteBounds(); return bounds.Height > baselineBounds.Height * 1.15 && bounds.Bottom < baselineBounds.Bottom - 15; }, "subtitle size/position did not change in rendered video");
+        try { await Wait(() => { var bounds = CaptureVideo(input).WhiteBounds(); return bounds.Height > baselineBounds.Height * 1.15 && bounds.Bottom < baselineBounds.Bottom - 15; }, "subtitle size/position did not change in rendered video"); }
+        catch { var failure = CaptureVideo(input); failure.Save("subtitle-adjustment-failure"); Console.WriteLine($"Subtitle bounds baseline={baselineBounds}, adjusted={failure.WhiteBounds()}"); throw; }
         var changedSubtitles = CaptureVideo(input); changedSubtitles.Save("subtitle-adjusted");
         Check(changedSubtitles.WhiteBounds().Height > baselineBounds.Height * 1.15, "rendered subtitle glyphs grow with selected size");
         Check(changedSubtitles.WhiteBounds().Bottom < baselineBounds.Bottom - 15, "rendered subtitles move upward with selected margin");

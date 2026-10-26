@@ -9,6 +9,9 @@
    <Setter Property="Foreground" Value="{DynamicResource Ink}"/><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="10,5"/><Setter Property="MinWidth" Value="28"/><Setter Property="Cursor" Value="Hand"/>
    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Border x:Name="B" Background="{TemplateBinding Background}" CornerRadius="7" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="B" Property="Background" Value="{DynamicResource Hover}"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="B" Property="Opacity" Value="0.35"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
   </Style>
+  <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" CornerRadius="7" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Opacity" Value="0.9"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+  </Style>
   <Style x:Key="ThemeChoice" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
    <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="VerticalContentAlignment" Value="Stretch"/>
    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/></ControlTemplate></Setter.Value></Setter>
@@ -80,7 +83,7 @@
          <Slider x:Name="SubtitleMargin" Minimum="0" Maximum="300" Value="0" TickFrequency="10" IsSnapToTickEnabled="True" ValueChanged="SubtitleDraftChanged" Margin="0,4,0,8" AutomationProperties.Name="자막 위치 / Subtitle position"/>
          <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="SubtitleFileLabel" Text="내장 자막 또는 자동 검색 자막" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/><Button Grid.Column="1" Content="자막 파일 열기" Click="SubtitleFileClick" Background="{DynamicResource Hover}"/></Grid>
          <TextBlock Text="텍스트 자막에 적용됩니다. 영상에 박힌 자막과 이미지 자막의 글꼴 크기는 변경되지 않습니다." TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource Muted}" Margin="0,8,0,8"/>
-         <Button x:Name="SubtitleApplyButton" Content="적용 / Apply" Click="SubtitleApplyClick" Background="{StaticResource BrandGreen}" Foreground="#12351F" HorizontalAlignment="Right" Padding="22,8"/>
+         <Button x:Name="SubtitleApplyButton" Style="{StaticResource PrimaryButton}" Content="적용 / Apply" Click="SubtitleApplyClick" Background="{StaticResource BrandGreen}" Foreground="#12351F" HorizontalAlignment="Right" Padding="22,8"/>
         </StackPanel>
         <StackPanel x:Name="InfoPanel" Visibility="Collapsed">
          <TextBlock x:Name="InfoEmpty" Text="열려 있는 영상이 없습니다. / No video open." Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,8"/>

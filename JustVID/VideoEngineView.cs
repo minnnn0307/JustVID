@@ -11,11 +11,16 @@ namespace JustVID;
 // VideoView content is a native-safe WPF overlay: selections remain above the video.
 public sealed class VideoEngineView : VideoView
 {
-    static readonly Lazy<LibVLC> engine = new(() =>
+    static readonly Lazy<bool> core = new(() =>
+    { Core.Initialize(Path.Combine(AppContext.BaseDirectory, "libvlc", "win-x64")); return true; });
+    static LibVLC CreateEngine(int scale, int margin)
     {
-        Core.Initialize(Path.Combine(AppContext.BaseDirectory, "libvlc", "win-x64"));
-        return new LibVLC("--no-video-title-show", "--no-osd", "--no-stats");
-    });
+        _ = core.Value;
+        return new LibVLC("--no-video-title-show", "--no-osd", "--no-stats", "--freetype-fontsize=0",
+            "--freetype-rel-fontsize=" + Math.Clamp((int)Math.Round(1600d / scale), 4, 40), "--sub-margin=" + margin);
+    }
+    static readonly Lazy<LibVLC> engine = new(() => CreateEngine(100, 0));
+    LibVLC? subtitleEngine;
     readonly DispatcherTimer opening = new() { Interval = TimeSpan.FromMilliseconds(100) };
     VlcPlayer? playback;
     Media? media;
@@ -66,12 +71,14 @@ public sealed class VideoEngineView : VideoView
         try
         {
             int session = generation;
-            playback = new VlcPlayer(engine.Value) { EnableKeyInput = false, EnableMouseInput = false, Scale = 0 };
+            var activeEngine = PreviewMode || (SubtitleScale == 100 && SubtitleMargin == 0)
+                ? engine.Value : (subtitleEngine ??= CreateEngine(SubtitleScale, SubtitleMargin));
+            playback = new VlcPlayer(activeEngine) { EnableKeyInput = false, EnableMouseInput = false, Scale = 0 };
             // No audio API calls for previews: on Windows, session mute/volume can affect the primary player.
             if (!PreviewMode) { playback.Volume = (int)(volume * 100); playback.Mute = muted; }
             playback.EncounteredError += (_, _) => Dispatcher.BeginInvoke(new Action(() => { if (!disposed && generation == session) { opening.Stop(); MediaFailed?.Invoke(this, EventArgs.Empty); } }));
             playback.EndReached += (_, _) => Dispatcher.BeginInvoke(new Action(() => { if (!disposed && generation == session) MediaEnded?.Invoke(this, new RoutedEventArgs()); }));
-            media = new Media(engine.Value, source);
+            media = new Media(activeEngine, source);
             media.AddOption(":avcodec-hw=any");
             if (PreviewMode) { media.AddOption(":no-audio"); media.AddOption(":input-fast-seek"); }
             else
@@ -101,13 +108,16 @@ public sealed class VideoEngineView : VideoView
         scale = Math.Clamp(scale, 50, 200); margin = Math.Clamp(margin, 0, 300);
         if (SubtitleScale == scale && SubtitleMargin == margin && SubtitleFile == file) return false;
         bool fileChanged = SubtitleFile != file;
+        bool styleChanged = SubtitleScale != scale || SubtitleMargin != margin;
         SubtitleScale = scale; SubtitleMargin = margin; SubtitleFile = file;
-        if (playback == null || source == null || PreviewMode) return false;
+        if (playback == null || source == null || PreviewMode)
+        { if (styleChanged) { subtitleEngine?.Dispose(); subtitleEngine = null; } return false; }
         long time = Math.Max(0, playback.Time);
         bool paused = !playback.IsPlaying;
         int? spu = fileChanged ? null : playback.Spu;
         int audio = playback.AudioTrack;
         Close();
+        if (styleChanged) { subtitleEngine?.Dispose(); subtitleEngine = null; }
         resumeTime = time; resumePaused = paused; resumeSpu = spu; resumeAudio = audio;
         Play();
         return true;
@@ -127,5 +137,5 @@ public sealed class VideoEngineView : VideoView
         playback?.Stop(); playback?.Dispose(); playback = null;
         media?.Dispose(); media = null;
     }
-    public new void Dispose() { if (disposed) return; disposed = true; Close(); base.Dispose(); }
+    public new void Dispose() { if (disposed) return; disposed = true; Close(); subtitleEngine?.Dispose(); subtitleEngine = null; base.Dispose(); }
 }
