@@ -179,22 +179,35 @@ static class Smoke
         SendEnter(); await Task.Delay(300);
         Check(!Field<bool>("fullscreen") && window.WindowState == WindowState.Normal, "restored fullscreen toggles back to normal");
         Check(!ContainsGrip(window), "no resize-grip control");
+        typeof(MainWindow).GetMethod("OpenFile", fields)!.Invoke(window, new object[] { Path.Combine(AppContext.BaseDirectory, "audio-fixture.mp4") });
+        await Wait(() => Field<bool>("ready"), "subtitle fixture did not open");
         Click(Field<Button>("SettingsButton")); await Task.Delay(300);
         Click(Field<Button>("SubtitleTab")); await Task.Delay(200);
-        Field<Slider>("SubtitleSize").Value = 150; Field<Slider>("SubtitleMargin").Value = 30;
-        typeof(MainWindow).GetField("subtitleFile", fields)!.SetValue(window, Path.Combine(AppContext.BaseDirectory, "subtitle.srt"));
+        Field<Slider>("SubtitleSize").Value = 100; Field<Slider>("SubtitleMargin").Value = 0;
+        typeof(MainWindow).GetField("subtitleFile", fields)!.SetValue(window, Path.Combine(AppContext.BaseDirectory, "test-data", "sample.srt"));
         Invoke("UpdateSubtitleDraft");
+        Click(Field<Button>("SubtitleApplyButton"));
+        await Wait(() => Field<bool>("ready"), "baseline subtitle settings did not resume video");
+        SendEscape(); await Task.Delay(300);
+        await Wait(() => CaptureVideo(input).WhiteBounds().Height > 0, "subtitle was not drawn on video");
+        var baselineSubtitles = CaptureVideo(input); baselineSubtitles.Save("subtitle-baseline");
+        var baselineBounds = baselineSubtitles.WhiteBounds();
+        Click(Field<Button>("SettingsButton")); await Task.Delay(300); Click(Field<Button>("SubtitleTab")); await Task.Delay(200);
+        Field<Slider>("SubtitleSize").Value = 150; Field<Slider>("SubtitleMargin").Value = 30;
         long beforeSubtitles = (long)view.Position.TotalMilliseconds;
         Click(Field<Button>("SubtitleApplyButton"));
         await Wait(() => Field<bool>("ready"), "subtitle settings did not resume video");
-        await Task.Delay(500);
+        await Task.Delay(300);
         Check(view.SubtitleScale == 150 && view.SubtitleMargin == 30, "subtitle settings apply selected size and bottom position");
         var subtitlePlayer = (VlcPlayer)typeof(VideoEngineView).GetField("playback", fields)!.GetValue(view)!;
         await Wait(() => subtitlePlayer.Spu >= 0, "external subtitle track did not activate");
-        Check(subtitlePlayer.Spu >= 0, "subtitle file is active after settings apply");
         Check(Math.Abs(view.Position.TotalMilliseconds - beforeSubtitles) < 3000, "subtitle application preserves playback position");
         SaveElement(Field<Grid>("SettingsBackdrop"), "settings-subtitles");
-        SendEscape(); await Task.Delay(200);
+        SendEscape(); await Task.Delay(300);
+        await Wait(() => { var bounds = CaptureVideo(input).WhiteBounds(); return bounds.Height > baselineBounds.Height * 1.15 && bounds.Bottom < baselineBounds.Bottom - 15; }, "subtitle size/position did not change in rendered video");
+        var changedSubtitles = CaptureVideo(input); changedSubtitles.Save("subtitle-adjusted");
+        Check(changedSubtitles.WhiteBounds().Height > baselineBounds.Height * 1.15, "rendered subtitle glyphs grow with selected size");
+        Check(changedSubtitles.WhiteBounds().Bottom < baselineBounds.Bottom - 15, "rendered subtitles move upward with selected margin");
         Invoke("ToggleFullscreen"); await Task.Delay(300);
         Move(window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight / 2))); await Task.Delay(150);
         Move(window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight - 20)));
@@ -202,10 +215,11 @@ static class Smoke
         await Task.Delay(150);
         var stop = Field<Button>("StopButton"); var play = Field<Button>("PlayButton");
         Check(stop.PointToScreen(new Point()).X > play.PointToScreen(new Point()).X, "stop button is placed to the right of play");
+        var stoppedFile = view.Source!.LocalPath;
         Click(stop); await Task.Delay(300);
         Check(window.IsVisible && !Field<bool>("ready") && view.Source == null && view.NaturalVideoWidth == 0, "stop closes the video decoder and keeps the application open");
         Check(Field<Viewbox>("EmptyLogo").IsVisible && !Field<Slider>("Timeline").IsEnabled && Field<TextBlock>("Clock").Text == "0:00 / 0:00", "stop restores the idle logo and clears timeline");
-        var fixture = Path.Combine(AppContext.BaseDirectory, "fixture.mp4");
+        var fixture = stoppedFile;
         File.Move(fixture, fixture + ".probe"); File.Move(fixture + ".probe", fixture);
         Check(true, "stopped video file can be renamed immediately");
         SendEnter(); await Task.Delay(300);
@@ -277,15 +291,59 @@ static class Smoke
         Move(window.PointToScreen(new Point(30, 20)));
         bool Match()
         {
-            var actual = (from sy in samples from sx in samples select ScreenPixel(input.PointToScreen(new Point(input.ActualWidth * sx, input.ActualHeight * sy)))).ToArray();
+            var frame = CaptureVideo(input);
+            var actual = (from sy in samples from sx in samples select frame.Pixel(sx, sy)).ToArray();
             return actual.Zip(expected).All(pair => ColorDistance(pair.First, pair.Second) < 55);
         }
-        await Wait(Match, name + " crop did not render the selected original pixels");
+        try { await Wait(Match, name + " crop did not render the selected original pixels"); }
+        catch { CaptureVideo(input).Save(name + "-crop-failure"); throw; }
         Check(Match(), name + " crop renders selected source colors without distortion");
         var crop = Field<Region>("crop");
         Check(Math.Abs(view.ActualWidth / view.ActualHeight - view.NaturalVideoWidth * crop.Width / (view.NaturalVideoHeight * crop.Height)) < .03,
             name + " viewport preserves selected aspect ratio");
         RightClick(input); keybd_event(0x11, 0, 2, UIntPtr.Zero); await Task.Delay(500);
+    }
+    sealed record Frame(BitmapSource Image, byte[] Pixels)
+    {
+        public uint Pixel(double x, double y)
+        {
+            int i = (Math.Clamp((int)(y * Image.PixelHeight), 0, Image.PixelHeight - 1) * Image.PixelWidth + Math.Clamp((int)(x * Image.PixelWidth), 0, Image.PixelWidth - 1)) * 4;
+            return (uint)(Pixels[i+2] | Pixels[i+1] << 8 | Pixels[i] << 16);
+        }
+        public Rect WhiteBounds()
+        {
+            int left = Image.PixelWidth, top = Image.PixelHeight, right = -1, bottom = -1;
+            for (int y = 0; y < Image.PixelHeight; y++) for (int x = 0; x < Image.PixelWidth; x++)
+            {
+                int i = (y * Image.PixelWidth + x) * 4;
+                if (Pixels[i] > 235 && Pixels[i+1] > 235 && Pixels[i+2] > 235)
+                { left = Math.Min(left, x); top = Math.Min(top, y); right = Math.Max(right, x); bottom = Math.Max(bottom, y); }
+            }
+            return right < left ? Rect.Empty : new Rect(left, top, right - left + 1, bottom - top + 1);
+        }
+        public void Save(string name)
+        {
+            Directory.CreateDirectory("artifacts/ui");
+            var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(Image));
+            using var output = File.Create($"artifacts/ui/{name}.png"); encoder.Save(output);
+        }
+    }
+    static Frame CaptureVideo(FrameworkElement element)
+    {
+        var a = element.PointToScreen(new Point());
+        var b = element.PointToScreen(new Point(element.ActualWidth, element.ActualHeight));
+        int width = Math.Max(1, (int)(b.X - a.X)), height = Math.Max(1, (int)(b.Y - a.Y));
+        var screen = GetDC(IntPtr.Zero); var memory = CreateCompatibleDC(screen);
+        var bitmap = CreateCompatibleBitmap(screen, width, height); var old = SelectObject(memory, bitmap);
+        try
+        {
+            if (!BitBlt(memory, 0, 0, width, height, screen, (int)a.X, (int)a.Y, 0x40CC0020)) throw new Exception("Screen capture failed");
+            var image = Imaging.CreateBitmapSourceFromHBitmap(bitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+            var converted = new FormatConvertedBitmap(image, PixelFormats.Bgra32, null, 0);
+            var pixels = new byte[width * height * 4]; converted.CopyPixels(pixels, width * 4, 0);
+            return new Frame(converted, pixels);
+        }
+        finally { SelectObject(memory, old); DeleteObject(bitmap); DeleteDC(memory); ReleaseDC(IntPtr.Zero, screen); }
     }
     static int ColorDistance(uint a, uint b) => Math.Abs((int)(a & 255) - (int)(b & 255)) + Math.Abs((int)((a >> 8) & 255) - (int)((b >> 8) & 255)) + Math.Abs((int)((a >> 16) & 255) - (int)((b >> 16) & 255));
     static uint ScreenPixel(Point point)
@@ -330,6 +388,12 @@ static class Smoke
     [StructLayout(LayoutKind.Sequential)] readonly record struct NativePoint(int X, int Y);
     [StructLayout(LayoutKind.Sequential)] struct NativeRect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] struct MonitorInfo { public int Size; public NativeRect Monitor, Work; public uint Flags; }
+    [DllImport("gdi32.dll")] static extern IntPtr CreateCompatibleDC(IntPtr dc);
+    [DllImport("gdi32.dll")] static extern IntPtr CreateCompatibleBitmap(IntPtr dc, int width, int height);
+    [DllImport("gdi32.dll")] static extern IntPtr SelectObject(IntPtr dc, IntPtr obj);
+    [DllImport("gdi32.dll")] static extern bool BitBlt(IntPtr dest, int x, int y, int width, int height, IntPtr source, int sourceX, int sourceY, uint mode);
+    [DllImport("gdi32.dll")] static extern bool DeleteDC(IntPtr dc);
+    [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr obj);
     [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr window);
     [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr window, IntPtr dc);
     [DllImport("gdi32.dll")] static extern uint GetPixel(IntPtr dc, int x, int y);
