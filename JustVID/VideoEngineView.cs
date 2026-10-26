@@ -68,8 +68,7 @@ public sealed class VideoEngineView : VideoView
     public void SetCrop(Region region)
     {
         if (playback == null || NaturalVideoWidth <= 0 || NaturalVideoHeight <= 0) return;
-        var pixels = ZoomMath.Pixels(region, NaturalVideoWidth, NaturalVideoHeight);
-        playback.CropGeometry = pixels == (0, 0, NaturalVideoWidth, NaturalVideoHeight) ? "" : $"{pixels.Width}x{pixels.Height}+{pixels.X}+{pixels.Y}";
+        playback.CropGeometry = ZoomMath.CropGeometry(region, NaturalVideoWidth, NaturalVideoHeight);
     }
     public void Close()
     {

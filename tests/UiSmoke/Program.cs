@@ -64,6 +64,8 @@ static class Smoke
         Move(new Point(tiny.X + 1, tiny.Y + 1)); await Task.Delay(100); mouse_event(4, 0, 0, 0, UIntPtr.Zero); await Task.Delay(200);
         Check(Field<Region>("crop").Width < .02, "one-screen-pixel drag zooms");
         RightClick(input); keybd_event(0x11, 0, 2, UIntPtr.Zero); await Task.Delay(200);
+        await VerifyCropPixels(input, .15, .12, .70, .16, "wide");
+        await VerifyCropPixels(input, .47, .12, .10, .70, "tall");
         var handle = new WindowInteropHelper(window).Handle;
         GetWindowRect(handle, out var original);
         Invoke("ToggleFullscreen"); await Task.Delay(700);
@@ -76,8 +78,58 @@ static class Smoke
         Check(process == Environment.ProcessId, "taskbar does not cover fullscreen bottom edge");
         Invoke("ExitFullscreen"); await Task.Delay(500); GetWindowRect(handle, out actual);
         Check(Math.Abs(actual.Left - original.Left) <= 2 && Math.Abs(actual.Top - original.Top) <= 2 && Math.Abs(actual.Right - original.Right) <= 2 && Math.Abs(actual.Bottom - original.Bottom) <= 2, "fullscreen restores original bounds");
+        window.WindowState = WindowState.Maximized; await Task.Delay(500);
+        GetWindowRect(handle, out actual);
+        GetMonitorInfo(MonitorFromWindow(handle, 2), ref monitor);
+        Check(actual.Left >= monitor.Work.Left && actual.Top >= monitor.Work.Top && actual.Right <= monitor.Work.Right && actual.Bottom <= monitor.Work.Bottom,
+            "maximize bounds stay inside monitor work area");
+        var controlsBottom = window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight - 2));
+        Check(controlsBottom.Y < monitor.Work.Bottom && controlsBottom.Y >= monitor.Work.Top, "maximized bottom controls remain above taskbar");
+        Invoke("ToggleFullscreen"); await Task.Delay(500); Invoke("ExitFullscreen"); await Task.Delay(500);
+        GetWindowRect(handle, out actual);
+        Check(window.WindowState == WindowState.Maximized && actual.Bottom <= monitor.Work.Bottom, "fullscreen from maximized restores work-area bounds");
+        window.WindowState = WindowState.Normal;
         Check(!ContainsGrip(window), "no resize-grip control");
         Console.WriteLine("Native Windows input and fullscreen smoke checks passed.");
+    }
+    static async Task VerifyCropPixels(Grid input, double x, double y, double width, double height, string name)
+    {
+        // Compare actual screen pixels, not just the crop string returned by VLC.
+        var a = input.PointToScreen(new Point(input.ActualWidth * x, input.ActualHeight * y));
+        var b = input.PointToScreen(new Point(input.ActualWidth * (x + width), input.ActualHeight * (y + height)));
+        var localA = input.PointFromScreen(new Point((int)a.X, (int)a.Y));
+        var localB = input.PointFromScreen(new Point((int)b.X, (int)b.Y));
+        var view = Field<VideoEngineView>("Player");
+        var proposed = ZoomMath.Select(new Region(0, 0, 1, 1), localA.X, localA.Y, localB.X, localB.Y, input.ActualWidth, input.ActualHeight);
+        var px = ZoomMath.Pixels(proposed, view.NaturalVideoWidth, view.NaturalVideoHeight);
+        double[] samples = [.17, .47, .77];
+        var expected = (from sy in samples from sx in samples
+            select ScreenPixel(input.PointToScreen(new Point(
+                (px.X + px.Width * sx) / view.NaturalVideoWidth * input.ActualWidth,
+                (px.Y + px.Height * sy) / view.NaturalVideoHeight * input.ActualHeight)))).ToArray();
+        Check(expected.Distinct().Count() > 1 && !expected.Contains(uint.MaxValue), name + " baseline has visible decoded colors");
+        keybd_event(0x11, 0, 0, UIntPtr.Zero);
+        Move(a); mouse_event(2, 0, 0, 0, UIntPtr.Zero); await Task.Delay(100);
+        Move(b); await Task.Delay(100); mouse_event(4, 0, 0, 0, UIntPtr.Zero);
+        Move(window.PointToScreen(new Point(30, 20)));
+        bool Match()
+        {
+            var actual = (from sy in samples from sx in samples select ScreenPixel(input.PointToScreen(new Point(input.ActualWidth * sx, input.ActualHeight * sy)))).ToArray();
+            return actual.Zip(expected).All(pair => ColorDistance(pair.First, pair.Second) < 55);
+        }
+        await Wait(Match, name + " crop did not render the selected original pixels");
+        Check(Match(), name + " crop renders selected source colors without distortion");
+        var crop = Field<Region>("crop");
+        Check(Math.Abs(view.ActualWidth / view.ActualHeight - view.NaturalVideoWidth * crop.Width / (view.NaturalVideoHeight * crop.Height)) < .03,
+            name + " viewport preserves selected aspect ratio");
+        RightClick(input); keybd_event(0x11, 0, 2, UIntPtr.Zero); await Task.Delay(500);
+    }
+    static int ColorDistance(uint a, uint b) => Math.Abs((int)(a & 255) - (int)(b & 255)) + Math.Abs((int)((a >> 8) & 255) - (int)((b >> 8) & 255)) + Math.Abs((int)((a >> 16) & 255) - (int)((b >> 16) & 255));
+    static uint ScreenPixel(Point point)
+    {
+        var dc = GetDC(IntPtr.Zero);
+        try { return GetPixel(dc, (int)point.X, (int)point.Y); }
+        finally { ReleaseDC(IntPtr.Zero, dc); }
     }
     static void Move(Point p) => SetCursorPos((int)p.X, (int)p.Y);
     static void RightClick(Grid input) { Move(input.PointToScreen(new Point(input.ActualWidth / 2, input.ActualHeight / 2))); mouse_event(8, 0, 0, 0, UIntPtr.Zero); mouse_event(16, 0, 0, 0, UIntPtr.Zero); }
@@ -97,6 +149,9 @@ static class Smoke
     [StructLayout(LayoutKind.Sequential)] readonly record struct NativePoint(int X, int Y);
     [StructLayout(LayoutKind.Sequential)] struct NativeRect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] struct MonitorInfo { public int Size; public NativeRect Monitor, Work; public uint Flags; }
+    [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr window);
+    [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr window, IntPtr dc);
+    [DllImport("gdi32.dll")] static extern uint GetPixel(IntPtr dc, int x, int y);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr handle);
     [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);

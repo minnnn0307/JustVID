@@ -11,6 +11,14 @@ public static class ZoomMath
         int h = Math.Clamp((int)Math.Ceiling(crop.Height * height), 1, height - y);
         return (x, y, w, h);
     }
+    // VLC 3's WxH+X+Y path treats W/H as absolute right/bottom in its display
+    // implementation. Border counts avoid that ambiguity for off-center crops.
+    public static string CropGeometry(Region crop, int width, int height)
+    {
+        var p = Pixels(crop, width, height);
+        if (p == (0, 0, width, height)) return "";
+        return $"{p.X}+{p.Y}+{width - p.X - p.Width}+{height - p.Y - p.Height}";
+    }
     // Maps a selection within the displayed viewport into the current source crop.
     public static Region Select(Region current, double x1, double y1, double x2, double y2, double width, double height)
     {

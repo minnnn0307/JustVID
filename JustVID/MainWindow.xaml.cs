@@ -139,7 +139,7 @@ public partial class MainWindow : Window
     {
         var menu = new ContextMenu();
         foreach (var item in new[] { ("다크 / Dark", false), ("라이트 / Light", true) }) { var m = new MenuItem { Header = item.Item1, IsCheckable = true, IsChecked = light == item.Item2 }; m.Click += (_, _) => { light = item.Item2; ApplyTheme(); }; menu.Items.Add(m); }
-        menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = $"JustVID · 1.0.2 · {Publisher}", IsEnabled = false }); menu.IsOpen = true;
+        menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = $"JustVID · 1.0.3 · {Publisher}", IsEnabled = false }); menu.IsOpen = true;
     }
     void ApplyTheme()
     {

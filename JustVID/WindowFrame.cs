@@ -64,6 +64,21 @@ public sealed class WindowFrame
     }
     IntPtr Hook(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        // Borderless maximization must honor this monitor's work area, not its
+        // full bounds. Fullscreen deliberately uses the separate path above.
+        if (message == 0x0024 && !IsFullscreen) // WM_GETMINMAXINFO
+        {
+            var monitor = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+            if (GetMonitorInfo(MonitorFromWindow(hwnd, 2), ref monitor))
+            {
+                var limits = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+                limits.MaxPosition = new NativePoint(monitor.Work.Left - monitor.Monitor.Left, monitor.Work.Top - monitor.Monitor.Top);
+                limits.MaxSize = new NativePoint(monitor.Work.Right - monitor.Work.Left, monitor.Work.Bottom - monitor.Work.Top);
+                Marshal.StructureToPtr(limits, lParam, false);
+                handled = true;
+                return IntPtr.Zero;
+            }
+        }
         // WM_ACTIVATEAPP: release topmost when switching apps, restore when returning.
         if (message == 0x001C && IsFullscreen)
         {
@@ -87,6 +102,12 @@ public sealed class WindowFrame
         var region = CreateRoundRectRgn(0, 0, rect.Right - rect.Left + 1, rect.Bottom - rect.Top + 1, diameter, diameter);
         if (SetWindowRgn(handle, region, true) == 0) DeleteObject(region);
     }
+    [StructLayout(LayoutKind.Sequential)] struct NativePoint
+    {
+        public int X, Y;
+        public NativePoint(int x, int y) { X = x; Y = y; }
+    }
+    [StructLayout(LayoutKind.Sequential)] struct MinMaxInfo { public NativePoint Reserved, MaxSize, MaxPosition, MinTrackSize, MaxTrackSize; }
     [StructLayout(LayoutKind.Sequential)] public struct NativeRect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] struct MonitorInfo { public int Size; public NativeRect Monitor, Work; public uint Flags; }
     [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
