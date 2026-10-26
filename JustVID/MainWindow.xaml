@@ -22,7 +22,7 @@
   </Grid>
   <Grid x:Name="VideoArea" Grid.Row="1" Background="{DynamicResource VideoBackground}" ClipToBounds="True" SizeChanged="LayoutVideo">
    <local:VideoEngineView x:Name="Player" Visibility="Hidden" HorizontalAlignment="Left" VerticalAlignment="Top" MediaOpened="MediaOpened" MediaEnded="MediaEnded" MediaFailed="MediaFailed">
-    <Grid x:Name="InputArea" Background="Transparent" MouseLeftButtonDown="VideoDown" MouseMove="VideoMove" MouseLeftButtonUp="VideoUp" MouseRightButtonDown="VideoRight" LostMouseCapture="SelectionLost" PreviewKeyDown="KeyDownHandler">
+    <Grid x:Name="InputArea" AllowDrop="True" Drop="FileDrop" Background="Transparent" MouseLeftButtonDown="VideoDown" MouseMove="VideoMove" MouseLeftButtonUp="VideoUp" MouseRightButtonDown="VideoRight" LostMouseCapture="SelectionLost" PreviewKeyDown="KeyDownHandler">
      <Canvas IsHitTestVisible="False"><Border x:Name="Selection" Visibility="Collapsed" BorderBrush="#32C777" BorderThickness="1" Background="#2832C777"/></Canvas>
     </Grid>
    </local:VideoEngineView>
@@ -39,6 +39,6 @@
   <Popup x:Name="PreviewPopup" PlacementTarget="{Binding ElementName=Timeline}" Placement="Relative" AllowsTransparency="True" IsHitTestVisible="False" PopupAnimation="None">
    <Border Background="{DynamicResource Surface}" CornerRadius="8" Padding="4" BorderThickness="1" BorderBrush="{DynamicResource TrackColor}"><StackPanel><Grid Width="168" Height="95" Background="Black"><local:VideoEngineView x:Name="PreviewPlayer" IsMuted="True" PreviewMode="True" MediaOpened="PreviewOpened" MediaFailed="PreviewFailed"><TextBlock x:Name="PreviewStatus" Text="…" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/></local:VideoEngineView></Grid><TextBlock x:Name="PreviewTime" HorizontalAlignment="Center" Margin="0,4,0,1" Foreground="{DynamicResource Ink}" FontSize="11"/></StackPanel></Border>
   </Popup>
-  <ResizeGrip Grid.Row="2" Panel.ZIndex="10" HorizontalAlignment="Right" VerticalAlignment="Bottom" Width="12" Height="12" Foreground="{DynamicResource Muted}"/>
+  <ResizeGrip shell:WindowChrome.ResizeGripDirection="BottomRight" Grid.Row="2" Panel.ZIndex="10" HorizontalAlignment="Right" VerticalAlignment="Bottom" Width="12" Height="12" Foreground="{DynamicResource Muted}"/>
  </Grid>
 </Window>
