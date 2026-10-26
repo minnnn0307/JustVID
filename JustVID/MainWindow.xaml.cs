@@ -58,7 +58,7 @@ public partial class MainWindow : Window
     {
         clock.Stop(); ReleasePreview(); CancelSelection(); ready = false; playing = false; Timeline.IsEnabled = false;
         Player.Close(); crop = new(0, 0, 1, 1); FileName.Text = Path.GetFileName(path); EmptyLogo.Visibility = Visibility.Collapsed;
-        source = new Uri(Path.GetFullPath(path)); Player.Source = source; Player.Visibility = Visibility.Visible; Player.Play(); playing = true; PlayButton.Content = "Ⅱ";
+        source = new Uri(Path.GetFullPath(path)); Player.Source = source; Player.Visibility = Visibility.Visible; Player.Play(); playing = true; UpdatePlayIcon();
     }
     void MediaOpened(object sender, RoutedEventArgs e)
     {
@@ -66,14 +66,19 @@ public partial class MainWindow : Window
         updating = true; Timeline.Maximum = ready ? Player.NaturalDuration.TimeSpan.TotalSeconds : 1; Timeline.Value = 0; updating = false;
         Timeline.IsEnabled = ready; ArrangeVideo(); clock.Start(); UpdateClock();
     }
-    void MediaEnded(object sender, RoutedEventArgs e) { Player.Pause(); playing = false; PlayButton.Content = "▶"; }
+    void MediaEnded(object sender, RoutedEventArgs e) { Player.Pause(); playing = false; UpdatePlayIcon(); }
     void MediaFailed(object sender, EventArgs e)
     {
-        clock.Stop(); ready = playing = false; Timeline.IsEnabled = false; Player.Close(); Player.Visibility = Visibility.Hidden; ReleasePreview(); EmptyLogo.Visibility = Visibility.Visible; PlayButton.Content = "▶";
+        clock.Stop(); ready = playing = false; Timeline.IsEnabled = false; Player.Close(); Player.Visibility = Visibility.Hidden; ReleasePreview(); EmptyLogo.Visibility = Visibility.Visible; UpdatePlayIcon();
         MessageBox.Show(this, "영상을 열 수 없습니다. 손상되었거나 지원하지 않는 파일일 수 있습니다.\nThe file may be damaged or unsupported.", "JustVID", MessageBoxButton.OK, MessageBoxImage.Information);
     }
     void ToggleClick(object sender, RoutedEventArgs e) => Toggle();
-    void Toggle() { if (!ready) return; if (playing) Player.Pause(); else { if (Player.Position.TotalSeconds >= Timeline.Maximum - .05) Player.Position = TimeSpan.Zero; Player.Play(); } playing = !playing; PlayButton.Content = playing ? "Ⅱ" : "▶"; }
+    void Toggle() { if (!ready) return; if (playing) Player.Pause(); else { if (Player.Position.TotalSeconds >= Timeline.Maximum - .05) Player.Position = TimeSpan.Zero; Player.Play(); } playing = !playing; UpdatePlayIcon(); }
+    void UpdatePlayIcon()
+    {
+        PlaySymbol.Visibility = playing ? Visibility.Collapsed : Visibility.Visible;
+        PauseSymbol.Visibility = playing ? Visibility.Visible : Visibility.Collapsed;
+    }
     void VolumeChanged(object sender, RoutedPropertyChangedEventArgs<double> e) { if (Player != null) { Player.Volume = e.NewValue; if (e.NewValue > 0) Player.IsMuted = false; UpdateVolumeIcon(); } }
     void MuteClick(object sender, RoutedEventArgs e) { Player.IsMuted = !Player.IsMuted; UpdateVolumeIcon(); }
     void UpdateVolumeIcon()
@@ -149,7 +154,7 @@ public partial class MainWindow : Window
     {
         var menu = new ContextMenu();
         foreach (var item in new[] { ("다크 / Dark", false), ("라이트 / Light", true) }) { var m = new MenuItem { Header = item.Item1, IsCheckable = true, IsChecked = light == item.Item2 }; m.Click += (_, _) => { light = item.Item2; ApplyTheme(); }; menu.Items.Add(m); }
-        menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = $"JustVID · 1.2.0 · {Publisher}", IsEnabled = false }); menu.IsOpen = true;
+        menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = $"JustVID · 1.2.1 · {Publisher}", IsEnabled = false }); menu.IsOpen = true;
     }
     void ApplyTheme()
     {
