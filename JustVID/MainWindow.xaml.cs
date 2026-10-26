@@ -21,11 +21,12 @@ public partial class MainWindow : Window
     bool playing, updating, seeking, ready, previewReady, light, fullscreen;
     double previewTarget;
     Uri? source;
-    WindowState previousState;
+    readonly WindowFrame frame;
     public string Publisher => CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ko" ? "조민혁" : "Minhyeok Cho";
     public MainWindow()
     {
         InitializeComponent();
+        frame = new WindowFrame(this);
         Player.Volume = Volume.Value; UpdateVolumeIcon();
         clock.Tick += (_, _) => { if (!ready || seeking) return; updating = true; Timeline.Value = Player.Position.TotalSeconds; updating = false; UpdateClock(); };
         previewDelay.Tick += (_, _) => { previewDelay.Stop(); ShowPreview(); };
@@ -114,7 +115,7 @@ public partial class MainWindow : Window
     void VideoDown(object sender, MouseButtonEventArgs e)
     {
         if (!ready || !Keyboard.Modifiers.HasFlag(ModifierKeys.Control) || !viewport.Contains(e.GetPosition(InputArea))) return;
-        origin = ClampPoint(e.GetPosition(InputArea)); InputArea.CaptureMouse(); Selection.Visibility = Visibility.Visible; DrawSelection(origin.Value); e.Handled = true;
+        origin = ClampPoint(e.GetPosition(InputArea)); InputArea.Focus(); InputArea.CaptureMouse(); Selection.Visibility = Visibility.Visible; DrawSelection(origin.Value); e.Handled = true;
     }
     void DrawSelection(Point p) { if (origin is not Point start) return; Canvas.SetLeft(Selection, Math.Min(start.X, p.X)); Canvas.SetTop(Selection, Math.Min(start.Y, p.Y)); Selection.Width = Math.Max(1, Math.Abs(p.X - start.X)); Selection.Height = Math.Max(1, Math.Abs(p.Y - start.Y)); }
     void VideoMove(object sender, MouseEventArgs e) { if (origin != null) DrawSelection(ClampPoint(e.GetPosition(InputArea))); }
@@ -125,7 +126,9 @@ public partial class MainWindow : Window
         if ((end - start).Length > 0 && viewport.Width > 0 && viewport.Height > 0) {
             // A one-pixel selection is valid. Preserve the selected image's source aspect ratio.
             var next = ZoomMath.Select(crop, start.X - viewport.X, start.Y - viewport.Y, end.X - viewport.X, end.Y - viewport.Y, viewport.Width, viewport.Height);
-            if (next.Width > 1e-9 && next.Height > 1e-9) crop = next;
+            var pixels = ZoomMath.Pixels(next, Player.NaturalVideoWidth, Player.NaturalVideoHeight);
+            crop = new Region((double)pixels.X / Player.NaturalVideoWidth, (double)pixels.Y / Player.NaturalVideoHeight,
+                (double)pixels.Width / Player.NaturalVideoWidth, (double)pixels.Height / Player.NaturalVideoHeight);
         }
         CancelSelection(); ArrangeVideo(); e.Handled = true;
     }
@@ -136,7 +139,7 @@ public partial class MainWindow : Window
     {
         var menu = new ContextMenu();
         foreach (var item in new[] { ("다크 / Dark", false), ("라이트 / Light", true) }) { var m = new MenuItem { Header = item.Item1, IsCheckable = true, IsChecked = light == item.Item2 }; m.Click += (_, _) => { light = item.Item2; ApplyTheme(); }; menu.Items.Add(m); }
-        menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = $"JustVID · 1.0.1 · {Publisher}", IsEnabled = false }); menu.IsOpen = true;
+        menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = $"JustVID · 1.0.2 · {Publisher}", IsEnabled = false }); menu.IsOpen = true;
     }
     void ApplyTheme()
     {
@@ -148,8 +151,20 @@ public partial class MainWindow : Window
     void Maximize(object sender, RoutedEventArgs e) { if (fullscreen) ExitFullscreen(); else WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized; }
     void CloseWindow(object sender, RoutedEventArgs e) => Close();
     void FullscreenClick(object sender, RoutedEventArgs e) => ToggleFullscreen();
-    void ToggleFullscreen() { if (fullscreen) ExitFullscreen(); else { previousState = WindowState; fullscreen = true; WindowState = WindowState.Normal; ResizeMode = ResizeMode.NoResize; WindowState = WindowState.Maximized; } }
-    void ExitFullscreen() { fullscreen = false; WindowState = WindowState.Normal; ResizeMode = ResizeMode.CanResize; WindowState = previousState; }
+    void ToggleFullscreen()
+    {
+        if (fullscreen) { ExitFullscreen(); return; }
+        CancelSelection(); ReleasePreview(); fullscreen = true;
+        TitleBar.Visibility = Visibility.Collapsed; TitleRow.Height = new GridLength(0);
+        frame.EnterFullscreen();
+    }
+    void ExitFullscreen()
+    {
+        if (!fullscreen) return;
+        CancelSelection(); fullscreen = false;
+        TitleBar.Visibility = Visibility.Visible; TitleRow.Height = new GridLength(40);
+        frame.ExitFullscreen();
+    }
     void KeyDownHandler(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.O && Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) OpenClick(this, e);

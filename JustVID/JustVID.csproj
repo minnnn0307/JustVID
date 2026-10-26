@@ -2,7 +2,7 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType><TargetFramework>net8.0-windows</TargetFramework><UseWPF>true</UseWPF>
     <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
-    <Version>1.0.1</Version><AssemblyVersion>1.0.1.0</AssemblyVersion><FileVersion>1.0.1.0</FileVersion>
+    <Version>1.0.2</Version><AssemblyVersion>1.0.2.0</AssemblyVersion><FileVersion>1.0.2.0</FileVersion>
     <Product>JustVID</Product><Title>JustVID</Title><Company>Minhyeok Cho</Company>
     <ApplicationIcon>Assets/JustVID.ico</ApplicationIcon>
   </PropertyGroup>

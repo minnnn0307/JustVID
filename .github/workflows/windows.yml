@@ -12,6 +12,16 @@ jobs:
           dotnet-version: 8.0.x
       - run: dotnet run --project tests/JustVID.Tests.csproj --configuration Release
       - run: dotnet publish JustVID/JustVID.csproj -c Release -r win-x64 --self-contained true -o artifacts/publish
+      - name: Windows native input and fullscreen smoke test
+        run: dotnet run --project tests/UiSmoke/UiSmoke.csproj -c Release -r win-x64
+        timeout-minutes: 3
+      - name: Upload UI verification image
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JustVID-UI-verification
+          path: artifacts/ui/
+          if-no-files-found: ignore
       - name: Check bundled codec runtime
         shell: pwsh
         run: |
