@@ -2,6 +2,12 @@
 
 Windows 10/11 x64용 동영상 플레이어. 버전 1.3.0, 이후 Semantic Versioning 적용. 앱 이름과 창 제목에는 버전을 붙이지 않습니다.
 
+## 설치
+
+[JustVID-Setup.exe 다운로드](https://github.com/minnnn0307/JustVID/releases/latest/download/JustVID-Setup.exe)
+
+설치 파일 하나를 받아 실행합니다. 압축 해제가 필요 없으며 .NET 실행 환경과 코덱을 포함해 오프라인 설치가 가능합니다.
+
 ## 사용
 
 파일 열기 버튼, Ctrl+O 또는 파일 드롭으로 영상을 엽니다. Space는 재생/일시정지, 좌우 방향키는 5초 이동, M은 음소거, F는 전체 화면, Enter는 일반 창과 직전 최대화/전체화면 모드를 전환합니다. Esc는 영역 선택을 취소합니다.
