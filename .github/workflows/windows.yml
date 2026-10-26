@@ -1,0 +1,38 @@
+name: Windows build
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet run --project tests/JustVID.Tests.csproj --configuration Release
+      - run: dotnet publish JustVID/JustVID.csproj -c Release -r win-x64 --self-contained true -o artifacts/publish
+      - name: Windows native input and fullscreen smoke test
+        run: dotnet run --project tests/UiSmoke/UiSmoke.csproj -c Release -r win-x64
+        timeout-minutes: 3
+      - name: Upload UI verification image
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JustVID-UI-verification
+          path: artifacts/ui/
+          if-no-files-found: ignore
+      - name: Check bundled codec runtime
+        shell: pwsh
+        run: |
+          if (!(Test-Path artifacts/publish/libvlc/win-x64/libvlc.dll)) { throw "Missing LibVLC runtime" }
+          if (!(Test-Path artifacts/publish/libvlc/win-x64/plugins/codec/libavcodec_plugin.dll)) { throw "Missing video codecs" }
+      - name: Build installer
+        shell: pwsh
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer/JustVID.iss'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JustVID-Windows-x64
+          path: |
+            artifacts/JustVID-Setup.exe
+            artifacts/publish/

@@ -1,0 +1,53 @@
+name: Publish installer release
+on:
+  push:
+    branches: [main, feat/justvid-player]
+    paths: [.github/release.json]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release manifest
+        id: manifest
+        shell: bash
+        run: |
+          node <<'JS'
+          const fs = require('fs');
+          const m = JSON.parse(fs.readFileSync('.github/release.json', 'utf8'));
+          if (!/^\d+\.\d+\.\d+$/.test(m.version) || !/^\d+$/.test(String(m.run_id)) || !/^[0-9a-f]{40}$/.test(m.commit)) throw Error('Invalid release manifest');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${m.version}\nrun_id=${m.run_id}\ncommit=${m.commit}\n`);
+          JS
+      - name: Verify successful build provenance
+        env:
+          RUN_ID: ${{ steps.manifest.outputs.run_id }}
+          TARGET: ${{ steps.manifest.outputs.commit }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > run.json
+          node -e "const r=require('./run.json'); if(r.conclusion!=='success'||r.head_sha!==process.env.TARGET) throw Error('Build not verified');"
+      - uses: actions/download-artifact@v4
+        with:
+          name: JustVID-Windows-x64
+          path: release
+          run-id: ${{ steps.manifest.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Publish only the installer
+        env:
+          VERSION: ${{ steps.manifest.outputs.version }}
+          TARGET: ${{ steps.manifest.outputs.commit }}
+        run: |
+          test -s release/JustVID-Setup.exe
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to overwrite.'
+            exit 1
+          fi
+          printf '%s\n' 'Windows 10/11 x64용 JustVID 설치 파일입니다.' 'JustVID-Setup.exe 하나를 다운로드해 실행하세요. .NET 실행 환경과 코덱이 포함되어 오프라인 설치가 가능합니다.' > release-notes.md
+          gh release create "v$VERSION" release/JustVID-Setup.exe --repo "$GITHUB_REPOSITORY" --target "$TARGET" --title "JustVID $VERSION" --notes-file release-notes.md

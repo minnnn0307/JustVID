@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><TargetFramework>net8.0-windows</TargetFramework><UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+    <Version>1.5.0</Version><AssemblyVersion>1.5.0.0</AssemblyVersion><FileVersion>1.5.0.0</FileVersion>
+    <Product>JustVID</Product><Title>JustVID</Title><Company>Minhyeok Cho</Company>
+    <ApplicationIcon>Assets/JustVID.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup><Resource Include="Assets/JustVID.ico" /></ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="LibVLCSharp.WPF" Version="3.9.3" />
+    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.21" />
+  </ItemGroup>
+  <ItemGroup><None Include="../THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
+</Project>
