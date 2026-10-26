@@ -201,7 +201,7 @@ public partial class MainWindow : Window
         AppearancePanel.Visibility = Visibility.Visible; InfoPanel.Visibility = SubtitlePanel.Visibility = Visibility.Collapsed;
         SubtitleSize.Value = subtitleScale; SubtitleMargin.Value = subtitleMargin; UpdateSubtitleDraft();
         PositionSettings(); UpdateSettingsTabs(); UpdateThemeChoices();
-        SettingsAbout.Text = $"JustVID  ·  1.4.0  ·  {Publisher}";
+        SettingsAbout.Text = $"JustVID  ·  1.4.1  ·  {Publisher}";
         RefreshMediaInformation(); SettingsPopup.IsOpen = true;
         Dispatcher.BeginInvoke(new Action(() => { if (SettingsPopup.IsOpen) SettingsCloseButton.Focus(); }));
     }
@@ -273,10 +273,11 @@ public partial class MainWindow : Window
         Resources["VideoBackground"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#E7EAED" : "#101214"));
         var keys = new[] { "Surface", "Ink", "Muted", "TrackColor", "Hover" }; for (int i = 0; i < keys.Length; i++) Resources[keys[i]] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colors[i]));
         Resources["ControlInk"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#C5E6A7" : "#F3F4F5"));
-        Resources["ControlSurface"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#D3DAE1" : "#17191C"));
+        Resources["ControlSurface"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#FFFEF9" : "#17191C"));
         Resources["ThumbEdge"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#8EAB78" : "#68717C"));
         Resources["Card"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#FFFFFF" : "#20242A"));
-        Resources["TimeSurface"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#C5D0C4" : "#282E34"));
+        Resources["TimeSurface"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#F3F1E8" : "#282E34"));
+        Resources["TimeInk"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#41483F" : "#F3F4F5"));
         UpdateThemeChoices(); UpdateSettingsTabs();
     }
     void Minimize(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
