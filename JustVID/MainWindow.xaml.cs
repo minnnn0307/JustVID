@@ -273,12 +273,56 @@ public partial class MainWindow : Window
         Resources["VideoBackground"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#E7EAED" : "#101214"));
         var keys = new[] { "Surface", "Ink", "Muted", "TrackColor", "Hover" }; for (int i = 0; i < keys.Length; i++) Resources[keys[i]] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colors[i]));
         Resources["ControlInk"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#C5E6A7" : "#F3F4F5"));
+        Resources["ControlEdge"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#4F965C" : "#00FFFFFF"));
         Resources["ControlSurface"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#FFFEF9" : "#17191C"));
-        Resources["ThumbEdge"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#8EAB78" : "#68717C"));
+        Resources["ThumbEdge"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#4F965C" : "#68717C"));
         Resources["Card"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#FFFFFF" : "#20242A"));
         Resources["TimeSurface"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#F3F1E8" : "#282E34"));
         Resources["TimeInk"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#41483F" : "#F3F4F5"));
         UpdateThemeChoices(); UpdateSettingsTabs();
+    }
+    Point? titleDragOrigin;
+    void TitleDown(object sender, MouseButtonEventArgs e)
+    {
+        if (fullscreen || e.OriginalSource is DependencyObject target && FindTitleButton(target)) return;
+        if (e.ClickCount == 2) { Maximize(sender, e); e.Handled = true; return; }
+        titleDragOrigin = e.GetPosition(this);
+        TitleBar.CaptureMouse();
+        e.Handled = true;
+    }
+    static bool FindTitleButton(DependencyObject target)
+    {
+        for (DependencyObject? node = target; node != null; node = VisualTreeHelper.GetParent(node))
+            if (node is Button) return true;
+        return false;
+    }
+    void TitleUp(object sender, MouseButtonEventArgs e)
+    {
+        titleDragOrigin = null;
+        if (TitleBar.IsMouseCaptured) TitleBar.ReleaseMouseCapture();
+    }
+    void TitleMove(object sender, MouseEventArgs e)
+    {
+        if (titleDragOrigin is not Point start || e.LeftButton != MouseButtonState.Pressed) return;
+        var current = e.GetPosition(this);
+        if (Math.Abs(current.X - start.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(current.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+        titleDragOrigin = null;
+        TitleBar.ReleaseMouseCapture();
+        if (WindowState == WindowState.Maximized)
+        {
+            var pointer = PointToScreen(current);
+            double fraction = Math.Clamp(start.X / ActualWidth, 0, 1);
+            var restore = RestoreBounds;
+            WindowState = WindowState.Normal;
+            // Convert native screen pixels using the DPI of the restored window.
+            var transform = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
+            var dip = transform.Transform(pointer);
+            Left = dip.X - restore.Width * fraction;
+            Top = dip.Y - Math.Clamp(start.Y, 0, 39);
+        }
+        DragMove();
+        frame.SnapToTop();
     }
     void Minimize(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     void Maximize(object sender, RoutedEventArgs e)
