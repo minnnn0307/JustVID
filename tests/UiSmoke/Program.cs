@@ -279,7 +279,8 @@ static class Smoke
         var view = Field<VideoEngineView>("Player");
         var proposed = ZoomMath.Select(new Region(0, 0, 1, 1), localA.X, localA.Y, localB.X, localB.Y, input.ActualWidth, input.ActualHeight);
         var px = ZoomMath.Pixels(proposed, view.NaturalVideoWidth, view.NaturalVideoHeight);
-        double[] samples = [.17, .47, .77];
+        // Sample away from SMPTE color boundaries: 4:2:0 chroma resampling changes edge pixels when an odd crop is scaled.
+        double[] samples = [.17, .43, .69];
         var expected = (from sy in samples from sx in samples
             select ScreenPixel(input.PointToScreen(new Point(
                 (px.X + px.Width * sx) / view.NaturalVideoWidth * input.ActualWidth,
