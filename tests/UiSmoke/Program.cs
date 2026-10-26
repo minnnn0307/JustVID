@@ -65,7 +65,7 @@ static class Smoke
         Check(Field<Region>("crop").Width < .02, "one-screen-pixel drag zooms");
         RightClick(input); keybd_event(0x11, 0, 2, UIntPtr.Zero); await Task.Delay(200);
         await VerifyCropPixels(input, .15, .12, .70, .16, "wide");
-        await VerifyCropPixels(input, .47, .12, .10, .70, "tall");
+        await VerifyCropPixels(input, .40, .12, .10, .70, "tall");
         var handle = new WindowInteropHelper(window).Handle;
         GetWindowRect(handle, out var original);
         Invoke("ToggleFullscreen"); await Task.Delay(700);
