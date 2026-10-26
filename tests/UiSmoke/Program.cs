@@ -39,6 +39,7 @@ static class Smoke
     static async Task Run()
     {
         await Task.Delay(500);
+        await VerifyTitleDragging();
         var logo = Field<Viewbox>("EmptyLogo");
         Check(logo.IsVisible && !logo.IsHitTestVisible, "idle screen shows a non-clickable centered JustVID logo");
         Check(typeof(MainWindow).GetField("OpenHint", fields) == null, "idle file-open button removed");
@@ -58,6 +59,8 @@ static class Smoke
         Check(Field<TextBlock>("InfoEmpty").IsVisible, "media information shows an empty state before opening a video");
         SendEscape(); await Task.Delay(150);
         Check(!Field<Popup>("SettingsPopup").IsOpen, "Escape closes only the settings popup");
+        Check(((SolidColorBrush)window.Resources["ControlEdge"]).Color == (Color)ColorConverter.ConvertFromString("#4F965C"), "light icons have a thin green outline");
+        Check(((SolidColorBrush)window.Resources["ThumbEdge"]).Color == (Color)ColorConverter.ConvertFromString("#4F965C"), "light slider thumbs share the green outline");
         SaveElement(Field<Grid>("RootLayout"), "idle-light");
         typeof(MainWindow).GetMethod("OpenFile", fields)!.Invoke(window, new object[] { Path.Combine(AppContext.BaseDirectory, "fixture.mp4") });
         await Wait(() => Field<bool>("ready"), "Fixture did not decode");
@@ -362,6 +365,61 @@ static class Smoke
         mouse_event(2, 0, 0, 0, UIntPtr.Zero); mouse_event(4, 0, 0, 0, UIntPtr.Zero);
     }
     static void SendEscape() { keybd_event(0x1B, 0, 0, UIntPtr.Zero); keybd_event(0x1B, 0, 2, UIntPtr.Zero); }
+    static async Task NativeTitleDrag(Point from, Point to)
+    {
+        // Keep generating native input while DragMove runs its modal Windows move loop.
+        await Task.Run(() =>
+        {
+            Move(from); Thread.Sleep(100);
+            mouse_event(2, 0, 0, 0, UIntPtr.Zero);
+            try
+            {
+                Thread.Sleep(120);
+                for (int step = 1; step <= 20; step++)
+                {
+                    Move(new Point(from.X + (to.X - from.X) * step / 20,
+                        from.Y + (to.Y - from.Y) * step / 20));
+                    Thread.Sleep(25);
+                }
+                Thread.Sleep(150);
+            }
+            finally { mouse_event(4, 0, 0, 0, UIntPtr.Zero); }
+        });
+        await Task.Delay(350);
+    }
+    static async Task VerifyTitleDragging()
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        var saved = new Rect(window.Left, window.Top, window.Width, window.Height);
+        var monitor = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        GetMonitorInfo(MonitorFromWindow(handle, 2), ref monitor);
+        window.Activate(); SetForegroundWindow(handle);
+        var start = Field<Grid>("TitleBar").PointToScreen(new Point(220, 20));
+        await NativeTitleDrag(start, new Point(start.X, monitor.Work.Top + 1));
+        Check(window.WindowState == WindowState.Maximized, "native title drag to top maximizes the window");
+        GetWindowRect(handle, out var maximized);
+        Check(maximized.Bottom <= monitor.Work.Bottom && maximized.Top >= monitor.Work.Top,
+            "title-drag maximization honors taskbar work area");
+        SaveElement(Field<Grid>("RootLayout"), "title-drag-maximized");
+        start = Field<Grid>("TitleBar").PointToScreen(new Point(220, 20));
+        var target = new Point(start.X + 70, start.Y + 180);
+        await NativeTitleDrag(start, target);
+        Check(window.WindowState == WindowState.Normal, "native title drag down restores normal window");
+        var titleBounds = Field<Grid>("TitleBar");
+        var restoredTitle = new Rect(titleBounds.PointToScreen(new Point()),
+            titleBounds.PointToScreen(new Point(titleBounds.ActualWidth, titleBounds.ActualHeight)));
+        Check(restoredTitle.Contains(target), "restored title stays under the drag pointer");
+        Check(Math.Abs(window.Width - saved.Width) < 2 && Math.Abs(window.Height - saved.Height) < 2,
+            "drag restore keeps the original window size");
+        SaveElement(Field<Grid>("RootLayout"), "title-drag-restored");
+        SendEnter(); await Task.Delay(250);
+        Check(window.WindowState == WindowState.Maximized, "Enter remembers maximized mode after dragging down");
+        SendEnter(); await Task.Delay(250);
+        Check(window.WindowState == WindowState.Normal, "Enter returns to normal after title drag");
+        window.Left = saved.Left; window.Top = saved.Top;
+        window.Width = saved.Width; window.Height = saved.Height;
+        await Task.Delay(200);
+    }
     static void Move(Point p) => SetCursorPos((int)p.X, (int)p.Y);
     static void RightClick(Grid input) { Move(input.PointToScreen(new Point(input.ActualWidth / 2, input.ActualHeight / 2))); mouse_event(8, 0, 0, 0, UIntPtr.Zero); mouse_event(16, 0, 0, 0, UIntPtr.Zero); }
     static bool ContainsGrip(DependencyObject root)
