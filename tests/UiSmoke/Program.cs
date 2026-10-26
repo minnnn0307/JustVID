@@ -249,7 +249,15 @@ static class Smoke
     static void SaveElement(FrameworkElement element, string name)
     {
         Directory.CreateDirectory("artifacts/ui");
-        var image = new RenderTargetBitmap((int)element.ActualWidth, (int)element.ActualHeight, 96, 96, PixelFormats.Pbgra32); image.Render(element);
+        var image = new RenderTargetBitmap((int)element.ActualWidth, (int)element.ActualHeight, 96, 96, PixelFormats.Pbgra32); 
+        if (element.Name is "RootLayout" or "SettingsBackdrop")
+        {
+            var background = new DrawingVisual();
+            using (var drawing = background.RenderOpen()) drawing.DrawRectangle(window.Background, null, new Rect(0, 0, element.ActualWidth, element.ActualHeight));
+            image.Render(background);
+            if (element.Name == "SettingsBackdrop") image.Render(Field<Grid>("RootLayout"));
+        }
+        image.Render(element);
         var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(image));
         using var stream = File.Create($"artifacts/ui/{name}.png"); png.Save(stream);
     }
