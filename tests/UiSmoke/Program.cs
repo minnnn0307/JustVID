@@ -40,12 +40,37 @@ static class Smoke
         Check(logo.IsVisible && !logo.IsHitTestVisible, "idle screen shows a non-clickable centered JustVID logo");
         Check(typeof(MainWindow).GetField("OpenHint", fields) == null, "idle file-open button removed");
         SaveElement(Field<Grid>("RootLayout"), "idle-logo");
+        var caption = new[] { Field<Button>("MinimizeButton"), Field<Button>("MaximizeButton"), Field<Button>("CloseButton") };
+        Check(caption.All(b => Math.Abs(b.ActualWidth - caption[0].ActualWidth) < .1 && Math.Abs(b.ActualHeight - caption[0].ActualHeight) < .1), "caption buttons have equal hit target dimensions");
+        Click(Field<Button>("SettingsButton"));
+        await Wait(() => Field<Popup>("SettingsPopup").IsOpen, "settings popup did not open");
+        Click(Field<Button>("LightThemeChoice")); await Task.Delay(150);
+        Check(Field<bool>("light"), "light theme can be selected in settings");
+        Check(((SolidColorBrush)window.Resources["ControlInk"]).Color == Colors.White, "light playback icons and slider thumbs use white ink");
+        SaveElement(Field<Grid>("SettingsBackdrop"), "settings-light");
+        Click(Field<Button>("InfoTab")); await Task.Delay(150);
+        Check(Field<TextBlock>("InfoEmpty").IsVisible, "media information shows an empty state before opening a video");
+        SendEscape(); await Task.Delay(150);
+        Check(!Field<Popup>("SettingsPopup").IsOpen, "Escape closes only the settings popup");
+        SaveElement(Field<Grid>("RootLayout"), "idle-light");
         typeof(MainWindow).GetMethod("OpenFile", fields)!.Invoke(window, new object[] { Path.Combine(AppContext.BaseDirectory, "fixture.mp4") });
         await Wait(() => Field<bool>("ready"), "Fixture did not decode");
         await Task.Delay(500);
         var input = Field<Grid>("InputArea");
         var selection = Field<Border>("Selection");
         var view = Field<VideoEngineView>("Player");
+        Click(Field<Button>("SettingsButton")); await Task.Delay(150);
+        Click(Field<Button>("InfoTab")); await Task.Delay(150);
+        var information = Field<ItemsControl>("InfoSections").Items.OfType<InformationSection>().ToArray();
+        Check(information.Any(section => section.Rows.Any(row => row.Value == "320 × 180")), "media information reads actual source resolution");
+        Check(information.Any(section => section.Rows.Any(row => row.Value.Contains("H.264"))), "media information reads the video codec");
+        Check(information.Any(section => section.Rows.Any(row => row.Value.Contains("2 fps"))), "media information reads actual frame rate");
+        SaveElement(Field<Grid>("SettingsBackdrop"), "settings-media-info");
+        Click(Field<Button>("AppearanceTab")); await Task.Delay(100);
+        Click(Field<Button>("DarkThemeChoice")); await Task.Delay(100);
+        Check(!Field<bool>("light"), "dark theme can be selected in settings");
+        SaveElement(Field<Grid>("SettingsBackdrop"), "settings-dark");
+        SendEscape(); await Task.Delay(150);
         var overlay = Window.GetWindow(input);
         overlay.Activate(); SetForegroundWindow(new WindowInteropHelper(overlay).Handle);
         var start = input.PointToScreen(new Point(input.ActualWidth * .25, input.ActualHeight * .25));
@@ -142,6 +167,23 @@ static class Smoke
         SendEnter(); await Task.Delay(300);
         Check(!Field<bool>("fullscreen") && window.WindowState == WindowState.Normal, "restored fullscreen toggles back to normal");
         Check(!ContainsGrip(window), "no resize-grip control");
+        Invoke("ToggleFullscreen"); await Task.Delay(300);
+        Move(window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight / 2))); await Task.Delay(150);
+        Move(window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight - 20)));
+        await Wait(() => controls.IsOpen, "fullscreen controls not shown for stop");
+        await Task.Delay(150);
+        var stop = Field<Button>("StopButton"); var play = Field<Button>("PlayButton");
+        Check(stop.PointToScreen(new Point()).X > play.PointToScreen(new Point()).X, "stop button is placed to the right of play");
+        Click(stop); await Task.Delay(300);
+        Check(window.IsVisible && !Field<bool>("ready") && view.Source == null && view.NaturalVideoWidth == 0, "stop closes the video decoder and keeps the application open");
+        Check(Field<Viewbox>("EmptyLogo").IsVisible && !Field<Slider>("Timeline").IsEnabled && Field<TextBlock>("Clock").Text == "0:00 / 0:00", "stop restores the idle logo and clears timeline");
+        var fixture = Path.Combine(AppContext.BaseDirectory, "fixture.mp4");
+        File.Move(fixture, fixture + ".probe"); File.Move(fixture + ".probe", fixture);
+        Check(true, "stopped video file can be renamed immediately");
+        SendEnter(); await Task.Delay(300);
+        Click(Field<Button>("SettingsButton")); await Task.Delay(150); Click(Field<Button>("InfoTab")); await Task.Delay(100);
+        Check(Field<TextBlock>("InfoEmpty").IsVisible && Field<ItemsControl>("InfoSections").Items.Count == 0, "stop clears stale media information");
+        SendEscape(); await Task.Delay(150);
         Console.WriteLine("Native Windows input and fullscreen smoke checks passed.");
     }
     static async Task VerifyCropPixels(Grid input, double x, double y, double width, double height, string name)
@@ -183,6 +225,12 @@ static class Smoke
         try { return GetPixel(dc, (int)point.X, (int)point.Y); }
         finally { ReleaseDC(IntPtr.Zero, dc); }
     }
+    static void Click(FrameworkElement element)
+    {
+        Move(element.PointToScreen(new Point(element.ActualWidth / 2, element.ActualHeight / 2)));
+        mouse_event(2, 0, 0, 0, UIntPtr.Zero); mouse_event(4, 0, 0, 0, UIntPtr.Zero);
+    }
+    static void SendEscape() { keybd_event(0x1B, 0, 0, UIntPtr.Zero); keybd_event(0x1B, 0, 2, UIntPtr.Zero); }
     static void Move(Point p) => SetCursorPos((int)p.X, (int)p.Y);
     static void RightClick(Grid input) { Move(input.PointToScreen(new Point(input.ActualWidth / 2, input.ActualHeight / 2))); mouse_event(8, 0, 0, 0, UIntPtr.Zero); mouse_event(16, 0, 0, 0, UIntPtr.Zero); }
     static bool ContainsGrip(DependencyObject root)

@@ -46,17 +46,17 @@ public partial class MainWindow : Window
             var args = Environment.GetCommandLineArgs(); if (args.Length > 1 && File.Exists(args[1])) OpenFile(args[1]);
         };
         Closed += (_, _) => {
-            fullscreenIdle.Stop(); FullscreenControls.IsOpen = false; clock.Stop(); previewDelay.Stop(); previewRelease.Stop(); Player.Dispose(); PreviewPlayer.Dispose();
+            SettingsPopup.IsOpen = false; fullscreenIdle.Stop(); FullscreenControls.IsOpen = false; clock.Stop(); previewDelay.Stop(); previewRelease.Stop(); Player.Dispose(); PreviewPlayer.Dispose();
             try { Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!); File.WriteAllText(settingsPath, JsonSerializer.Serialize(new Settings(light, Volume.Value))); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         };
-        SizeChanged += (_, _) => { Volume.Visibility = ActualWidth < 430 ? Visibility.Collapsed : Visibility.Visible; Clock.Visibility = ActualWidth < 330 ? Visibility.Collapsed : Visibility.Visible; FileName.Visibility = ActualWidth < 440 ? Visibility.Collapsed : Visibility.Visible; };
+        SizeChanged += (_, _) => { Volume.Visibility = ActualWidth < 430 ? Visibility.Collapsed : Visibility.Visible; Clock.Visibility = ActualWidth < 330 ? Visibility.Collapsed : Visibility.Visible; FileName.Visibility = ActualWidth < 440 ? Visibility.Collapsed : Visibility.Visible; TitleBrand.Visibility = ActualWidth < 330 ? Visibility.Collapsed : Visibility.Visible; if (SettingsPopup.IsOpen) PositionSettings(); };
     }
     record Settings(bool Light, double Volume);
     void OpenClick(object sender, RoutedEventArgs e) { var dialog = new OpenFileDialog { Filter = "Video|*.mp4;*.m4v;*.mov;*.wmv;*.avi;*.mkv;*.webm|All files|*.*" }; if (dialog.ShowDialog(this) == true) OpenFile(dialog.FileName); }
     void FileDrop(object sender, DragEventArgs e) { if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0) OpenFile(files[0]); }
     void OpenFile(string path)
     {
-        clock.Stop(); ReleasePreview(); CancelSelection(); ready = false; playing = false; Timeline.IsEnabled = false;
+        clock.Stop(); ReleasePreview(); CancelSelection(); ready = false; playing = false; Timeline.IsEnabled = false; StopButton.IsEnabled = true;
         Player.Close(); crop = new(0, 0, 1, 1); FileName.Text = Path.GetFileName(path); EmptyLogo.Visibility = Visibility.Collapsed;
         source = new Uri(Path.GetFullPath(path)); Player.Source = source; Player.Visibility = Visibility.Visible; Player.Play(); playing = true; UpdatePlayIcon();
     }
@@ -64,13 +64,27 @@ public partial class MainWindow : Window
     {
         ready = Player.NaturalDuration.HasTimeSpan && Player.NaturalDuration.TimeSpan.TotalSeconds > 0;
         updating = true; Timeline.Maximum = ready ? Player.NaturalDuration.TimeSpan.TotalSeconds : 1; Timeline.Value = 0; updating = false;
-        Timeline.IsEnabled = ready; ArrangeVideo(); clock.Start(); UpdateClock();
+        Timeline.IsEnabled = ready; ArrangeVideo(); clock.Start(); UpdateClock(); if (SettingsPopup.IsOpen) RefreshMediaInformation();
     }
     void MediaEnded(object sender, RoutedEventArgs e) { Player.Pause(); playing = false; UpdatePlayIcon(); }
     void MediaFailed(object sender, EventArgs e)
     {
-        clock.Stop(); ready = playing = false; Timeline.IsEnabled = false; Player.Close(); Player.Visibility = Visibility.Hidden; ReleasePreview(); EmptyLogo.Visibility = Visibility.Visible; UpdatePlayIcon();
+        StopPlayback();
         MessageBox.Show(this, "영상을 열 수 없습니다. 손상되었거나 지원하지 않는 파일일 수 있습니다.\nThe file may be damaged or unsupported.", "JustVID", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+    void StopClick(object sender, RoutedEventArgs e) => StopPlayback();
+    void StopPlayback()
+    {
+        clock.Stop(); CancelSelection(); ReleasePreview();
+        ready = playing = seeking = false;
+        Player.Source = null; source = null;
+        Player.Visibility = Visibility.Hidden;
+        crop = new(0, 0, 1, 1); viewport = Rect.Empty;
+        FileName.Text = ""; EmptyLogo.Visibility = Visibility.Visible;
+        updating = true; Timeline.Value = 0; Timeline.Maximum = 1; updating = false;
+        Timeline.IsEnabled = false; StopButton.IsEnabled = false;
+        Clock.Text = "0:00 / 0:00"; UpdatePlayIcon();
+        if (SettingsPopup.IsOpen) RefreshMediaInformation();
     }
     void ToggleClick(object sender, RoutedEventArgs e) => Toggle();
     void Toggle() { if (!ready) return; if (playing) Player.Pause(); else { if (Player.Position.TotalSeconds >= Timeline.Maximum - .05) Player.Position = TimeSpan.Zero; Player.Play(); } playing = !playing; UpdatePlayIcon(); }
@@ -150,17 +164,64 @@ public partial class MainWindow : Window
     void SelectionLost(object sender, MouseEventArgs e) { origin = null; Selection.Visibility = Visibility.Collapsed; }
     void CancelSelection() { origin = null; Selection.Visibility = Visibility.Collapsed; if (InputArea.IsMouseCaptured) InputArea.ReleaseMouseCapture(); }
     void VideoRight(object sender, MouseButtonEventArgs e) { if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return; CancelSelection(); crop = new(0, 0, 1, 1); ArrangeVideo(); e.Handled = true; }
-    void ThemeClick(object sender, RoutedEventArgs e)
+    void SettingsClick(object sender, RoutedEventArgs e) => OpenSettings();
+    void OpenSettings()
     {
-        var menu = new ContextMenu();
-        foreach (var item in new[] { ("다크 / Dark", false), ("라이트 / Light", true) }) { var m = new MenuItem { Header = item.Item1, IsCheckable = true, IsChecked = light == item.Item2 }; m.Click += (_, _) => { light = item.Item2; ApplyTheme(); }; menu.Items.Add(m); }
-        menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = $"JustVID · 1.2.1 · {Publisher}", IsEnabled = false }); menu.IsOpen = true;
+        CancelSelection(); ReleasePreview(); HideFullscreenControls();
+        AppearancePanel.Visibility = Visibility.Visible; InfoPanel.Visibility = Visibility.Collapsed;
+        PositionSettings(); UpdateSettingsTabs(); UpdateThemeChoices();
+        SettingsAbout.Text = $"JustVID  ·  1.3.0  ·  {Publisher}";
+        RefreshMediaInformation(); SettingsPopup.IsOpen = true; SettingsCloseButton.Focus();
+    }
+    void PositionSettings()
+    {
+        SettingsBackdrop.Width = Math.Max(1, ActualWidth); SettingsBackdrop.Height = Math.Max(1, ActualHeight);
+        SettingsCard.Width = Math.Max(120, Math.Min(520, ActualWidth - 32));
+        SettingsCard.Height = Math.Max(80, Math.Min(InfoPanel.Visibility == Visibility.Visible ? 520 : 340, ActualHeight - 32));
+        SettingsCard.MaxHeight = Math.Max(80, ActualHeight - 32);
+    }
+    void SettingsCloseClick(object sender, RoutedEventArgs e) => CloseSettings();
+    void CloseSettings() { SettingsPopup.IsOpen = false; if (ready) InputArea.Focus(); else Focus(); }
+    void SettingsBackdropClick(object sender, MouseButtonEventArgs e) { if (ReferenceEquals(e.OriginalSource, SettingsBackdrop)) { CloseSettings(); e.Handled = true; } }
+    void SettingsKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape) { CloseSettings(); e.Handled = true; }
+        // Settings uses its own focus scope; Enter/Space must not toggle playback or window mode.
+    }
+    void AppearanceClick(object sender, RoutedEventArgs e)
+    { AppearancePanel.Visibility = Visibility.Visible; InfoPanel.Visibility = Visibility.Collapsed; PositionSettings(); UpdateSettingsTabs(); }
+    void InfoClick(object sender, RoutedEventArgs e)
+    { AppearancePanel.Visibility = Visibility.Collapsed; InfoPanel.Visibility = Visibility.Visible; PositionSettings(); UpdateSettingsTabs(); RefreshMediaInformation(); }
+    void UpdateSettingsTabs()
+    {
+        AppearanceTab.Background = AppearancePanel.Visibility == Visibility.Visible ? (Brush)Resources["Hover"] : Brushes.Transparent;
+        InfoTab.Background = InfoPanel.Visibility == Visibility.Visible ? (Brush)Resources["Hover"] : Brushes.Transparent;
+    }
+    void LightThemeClick(object sender, RoutedEventArgs e) { light = true; ApplyTheme(); }
+    void DarkThemeClick(object sender, RoutedEventArgs e) { light = false; ApplyTheme(); }
+    void UpdateThemeChoices()
+    {
+        LightThemeOutline.BorderBrush = (Brush)Resources[light ? "BrandGreen" : "TrackColor"];
+        DarkThemeOutline.BorderBrush = (Brush)Resources[light ? "TrackColor" : "BrandGreen"];
+        LightThemeOutline.BorderThickness = new Thickness(light ? 2 : 1);
+        DarkThemeOutline.BorderThickness = new Thickness(light ? 1 : 2);
+    }
+    void RefreshMediaInformation()
+    {
+        var sections = Player.GetInformation();
+        InfoSections.ItemsSource = sections;
+        InfoEmpty.Visibility = sections.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
     void ApplyTheme()
     {
-        var colors = light ? new[] { "#F5F6F7", "#202428", "#626A72", "#D4D9DE", "#E4E8EC" } : new[] { "#17191C", "#F3F4F5", "#9CA3AB", "#3A3E44", "#30353A" };
+        var colors = light ? new[] { "#F5F6F7", "#202428", "#626A72", "#B9C3CD", "#E4E8EC" } : new[] { "#17191C", "#F3F4F5", "#9CA3AB", "#3A3E44", "#30353A" };
         Resources["VideoBackground"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#E7EAED" : "#101214"));
         var keys = new[] { "Surface", "Ink", "Muted", "TrackColor", "Hover" }; for (int i = 0; i < keys.Length; i++) Resources[keys[i]] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colors[i]));
+        Resources["ControlInk"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#FFFFFF" : "#F3F4F5"));
+        Resources["ControlSurface"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#D3DAE1" : "#17191C"));
+        Resources["ThumbEdge"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#A3AFBB" : "#68717C"));
+        Resources["Card"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? "#FFFFFF" : "#20242A"));
+        UpdateThemeChoices(); UpdateSettingsTabs();
     }
     void Minimize(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     void Maximize(object sender, RoutedEventArgs e)
@@ -204,6 +265,7 @@ public partial class MainWindow : Window
     void UpdateFullscreenControls()
     {
         if (!fullscreen || !GetCursorPos(out var cursor)) return;
+        if (SettingsPopup.IsOpen) { HideFullscreenControls(); return; }
         var pointer = new Point(cursor.X, cursor.Y);
         var local = PointFromScreen(pointer);
         bool moved = pointer != lastPointer;
@@ -257,7 +319,8 @@ public partial class MainWindow : Window
     [DllImport("user32.dll")] static extern bool GetCursorPos(out CursorPoint point);
     void KeyDownHandler(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.O && Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) OpenClick(this, e);
+        if (e.Key == Key.OemComma && Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) OpenSettings();
+        else if (e.Key == Key.O && Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) OpenClick(this, e);
         else if (e.Key == Key.Space) Toggle();
         else if (e.Key == Key.F) ToggleFullscreen();
         else if (e.Key == Key.Enter) { if (!e.IsRepeat) ToggleWindowMode(); }

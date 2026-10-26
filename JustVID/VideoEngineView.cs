@@ -70,6 +70,13 @@ public sealed class VideoEngineView : VideoView
         if (playback == null || NaturalVideoWidth <= 0 || NaturalVideoHeight <= 0) return;
         playback.CropGeometry = ZoomMath.CropGeometry(region, NaturalVideoWidth, NaturalVideoHeight);
     }
+    public IReadOnlyList<InformationSection> GetInformation()
+    {
+        if (media == null || source == null) return Array.Empty<InformationSection>();
+        try { return MediaInformation.Read(media, source, playback?.Length ?? 0); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or VLCException)
+        { return new[] { new InformationSection("정보 / Information", new[] { new InformationRow("상태 / Status", "일부 정보를 읽을 수 없습니다. / Some information is unavailable.") }) }; }
+    }
     public void Close()
     {
         generation++; opening.Stop(); opened = false; NaturalVideoWidth = NaturalVideoHeight = 0;

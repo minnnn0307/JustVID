@@ -9,10 +9,10 @@ from PIL import Image, ImageDraw
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / 'JustVID' / 'Assets'
 GREEN = '#32C777'
-PATH = 'M0,5.2 Q0,0 4.5,2.6 L82.1,47.4 Q86.6,50 82.1,52.6 L4.5,97.4 Q0,100 0,94.8 Z'
+PATH = 'M0,6.8 Q0,0 5.9,3.4 L80.7,46.6 Q86.6,50 80.7,53.4 L5.9,96.6 Q0,100 0,93.2 Z'
 
 # Sample the same quadratic curves used by WPF/SVG for supersampled raster art.
-points = [(0, 5.2)]
+points = [(0, 6.8)]
 def line(x, y):
     points.append((x, y))
 def quadratic(cx, cy, x, y):
@@ -21,11 +21,11 @@ def quadratic(cx, cy, x, y):
         t = i / 64
         points.append(((1-t)**2*ax + 2*(1-t)*t*cx + t*t*x,
                        (1-t)**2*ay + 2*(1-t)*t*cy + t*t*y))
-quadratic(0, 0, 4.5, 2.6)
-line(82.1, 47.4)
-quadratic(86.6, 50, 82.1, 52.6)
-line(4.5, 97.4)
-quadratic(0, 100, 0, 94.8)
+quadratic(0, 0, 5.9, 3.4)
+line(80.7, 46.6)
+quadratic(86.6, 50, 80.7, 53.4)
+line(5.9, 96.6)
+quadratic(0, 100, 0, 93.2)
 
 ASSETS.mkdir(parents=True, exist_ok=True)
 (ASSETS / 'Brand.xaml').write_text(f'''<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
