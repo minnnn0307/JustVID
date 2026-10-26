@@ -171,7 +171,8 @@ public partial class MainWindow : Window
         AppearancePanel.Visibility = Visibility.Visible; InfoPanel.Visibility = Visibility.Collapsed;
         PositionSettings(); UpdateSettingsTabs(); UpdateThemeChoices();
         SettingsAbout.Text = $"JustVID  ·  1.3.0  ·  {Publisher}";
-        RefreshMediaInformation(); SettingsPopup.IsOpen = true; SettingsCloseButton.Focus();
+        RefreshMediaInformation(); SettingsPopup.IsOpen = true;
+        Dispatcher.BeginInvoke(new Action(() => { if (SettingsPopup.IsOpen) SettingsCloseButton.Focus(); }));
     }
     void PositionSettings()
     {
@@ -319,6 +320,11 @@ public partial class MainWindow : Window
     [DllImport("user32.dll")] static extern bool GetCursorPos(out CursorPoint point);
     void KeyDownHandler(object sender, KeyEventArgs e)
     {
+        if (SettingsPopup.IsOpen)
+        {
+            if (e.Key == Key.Escape) { CloseSettings(); e.Handled = true; }
+            return;
+        }
         if (e.Key == Key.OemComma && Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) OpenSettings();
         else if (e.Key == Key.O && Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) OpenClick(this, e);
         else if (e.Key == Key.Space) Toggle();

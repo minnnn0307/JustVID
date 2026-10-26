@@ -44,7 +44,10 @@ static class Smoke
         Check(caption.All(b => Math.Abs(b.ActualWidth - caption[0].ActualWidth) < .1 && Math.Abs(b.ActualHeight - caption[0].ActualHeight) < .1), "caption buttons have equal hit target dimensions");
         Click(Field<Button>("SettingsButton"));
         await Wait(() => Field<Popup>("SettingsPopup").IsOpen, "settings popup did not open");
-        Click(Field<Button>("LightThemeChoice")); await Task.Delay(150);
+        await Task.Delay(300);
+        SaveElement(Field<Grid>("SettingsBackdrop"), "settings-open");
+        Click(Field<Button>("LightThemeChoice"));
+        await Wait(() => Field<bool>("light"), "light theme click did not apply");
         Check(Field<bool>("light"), "light theme can be selected in settings");
         Check(((SolidColorBrush)window.Resources["ControlInk"]).Color == Colors.White, "light playback icons and slider thumbs use white ink");
         SaveElement(Field<Grid>("SettingsBackdrop"), "settings-light");
@@ -227,7 +230,9 @@ static class Smoke
     }
     static void Click(FrameworkElement element)
     {
-        Move(element.PointToScreen(new Point(element.ActualWidth / 2, element.ActualHeight / 2)));
+        var point = element.PointToScreen(new Point(element.ActualWidth / 2, element.ActualHeight / 2));
+        Console.WriteLine($"CLICK {element.Name}: {point}, size {element.ActualWidth}x{element.ActualHeight}, pixel {ScreenPixel(point):X8}");
+        Move(point);
         mouse_event(2, 0, 0, 0, UIntPtr.Zero); mouse_event(4, 0, 0, 0, UIntPtr.Zero);
     }
     static void SendEscape() { keybd_event(0x1B, 0, 0, UIntPtr.Zero); keybd_event(0x1B, 0, 2, UIntPtr.Zero); }
