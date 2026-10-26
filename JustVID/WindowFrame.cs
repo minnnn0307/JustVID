@@ -55,6 +55,14 @@ public sealed class WindowFrame
         window.WindowState = previousState;
         UpdateCorners();
     }
+    public void SnapToTop()
+    {
+        if (IsFullscreen || !GetCursorPos(out var cursor)) return;
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (GetMonitorInfo(MonitorFromPoint(cursor, 2), ref info) &&
+            cursor.Y <= info.Work.Top + Math.Max(2, (int)(4 * GetDpiForWindow(handle) / 96d)))
+            window.WindowState = WindowState.Maximized;
+    }
     void ApplyMonitorBounds()
     {
         var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
@@ -110,6 +118,8 @@ public sealed class WindowFrame
     [StructLayout(LayoutKind.Sequential)] struct MinMaxInfo { public NativePoint Reserved, MaxSize, MaxPosition, MinTrackSize, MaxTrackSize; }
     [StructLayout(LayoutKind.Sequential)] public struct NativeRect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] struct MonitorInfo { public int Size; public NativeRect Monitor, Work; public uint Flags; }
+    [DllImport("user32.dll")] static extern bool GetCursorPos(out NativePoint point);
+    [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(NativePoint point, uint flags);
     [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
     [DllImport("user32.dll", CharSet = CharSet.Auto)] static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
