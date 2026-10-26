@@ -12,7 +12,7 @@
    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Slider"><Grid Margin="5,0"><Track x:Name="PART_Track" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{TemplateBinding Value}"><Track.DecreaseRepeatButton><RepeatButton Command="Slider.DecreaseLarge" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Height="4" CornerRadius="2" Background="#32C777"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.DecreaseRepeatButton><Track.Thumb><Thumb Width="10" Height="10"><Thumb.Template><ControlTemplate TargetType="Thumb"><Ellipse Fill="{DynamicResource Ink}"/></ControlTemplate></Thumb.Template></Thumb></Track.Thumb><Track.IncreaseRepeatButton><RepeatButton Command="Slider.IncreaseLarge" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Height="4" CornerRadius="2" Background="{DynamicResource TrackColor}"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.IncreaseRepeatButton></Track></Grid></ControlTemplate></Setter.Value></Setter>
   </Style>
  </Window.Resources>
- <Grid>
+ <Grid x:Name="RootLayout">
   <Grid.RowDefinitions><RowDefinition x:Name="TitleRow" Height="40"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid x:Name="TitleBar" Margin="12,0,4,0">
    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -26,9 +26,11 @@
      <Canvas IsHitTestVisible="False"><Border x:Name="Selection" Visibility="Collapsed" BorderBrush="#32C777" BorderThickness="1" Background="#2832C777"/></Canvas>
     </Grid>
    </local:VideoEngineView>
-   <Button x:Name="OpenHint" Content="파일 열기 / Open file" HorizontalAlignment="Center" VerticalAlignment="Center" Click="OpenClick"/>
+   <Viewbox x:Name="EmptyLogo" MaxWidth="230" MaxHeight="60" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False">
+    <StackPanel Orientation="Horizontal"><Path Data="M0,0 L0,44 L38,22 Z" Fill="#32C777" Width="38" Height="44"/><TextBlock Text="JustVID" Foreground="{DynamicResource Ink}" FontSize="34" FontWeight="SemiBold" Margin="16,0,0,0" VerticalAlignment="Center"/></StackPanel>
+   </Viewbox>
   </Grid>
-  <Grid Grid.Row="2" Margin="12,5,12,10">
+  <Grid x:Name="ControlBar" Grid.Row="2" Margin="12,5,12,10" PreviewKeyDown="KeyDownHandler">
    <Grid.RowDefinitions><RowDefinition Height="26"/><RowDefinition Height="34"/></Grid.RowDefinitions>
    <Slider x:Name="Timeline" Maximum="1" ValueChanged="SeekChanged" PreviewMouseLeftButtonDown="SeekStart" PreviewMouseLeftButtonUp="SeekEnd" MouseMove="PreviewMove" MouseLeave="PreviewLeave" IsEnabled="False" AutomationProperties.Name="재생 위치 / Playback position"/>
    <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -36,6 +38,9 @@
     <StackPanel Grid.Column="2" Orientation="Horizontal"><Button x:Name="MuteButton" Click="MuteClick" ToolTip="음소거 (M)"><Grid Width="20" Height="20"><Path Data="M2,7 L6,7 L11,3 L11,17 L6,13 L2,13 Z" Fill="{DynamicResource Ink}"/><Path x:Name="VolumeLow" Data="M14,6 Q18,10 14,14" Stroke="{DynamicResource Ink}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/><Path x:Name="VolumeHigh" Data="M16,3 Q23,10 16,17" Stroke="{DynamicResource Ink}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/><Path x:Name="VolumeOff" Data="M14,7 L19,12 M19,7 L14,12" Stroke="{DynamicResource Ink}" StrokeThickness="1.5" Visibility="Collapsed"/></Grid></Button><Slider x:Name="Volume" Width="72" Maximum="1" Value="0.65" ValueChanged="VolumeChanged" AutomationProperties.Name="볼륨 / Volume"/><Button Content="◐" Click="ThemeClick" ToolTip="테마 / Theme"/><Button Content="⛶" Click="FullscreenClick" ToolTip="전체 화면 (F)"/></StackPanel>
    </Grid>
   </Grid>
+  <Popup x:Name="FullscreenControls" PlacementTarget="{Binding ElementName=RootLayout}" Placement="Relative" StaysOpen="True" AllowsTransparency="False" PopupAnimation="None">
+   <Border x:Name="FullscreenControlHost" Background="{DynamicResource Surface}" />
+  </Popup>
   <Popup x:Name="PreviewPopup" PlacementTarget="{Binding ElementName=Timeline}" Placement="Relative" AllowsTransparency="True" IsHitTestVisible="False" PopupAnimation="None">
    <Border Background="{DynamicResource Surface}" CornerRadius="8" Padding="4" BorderThickness="1" BorderBrush="{DynamicResource TrackColor}"><StackPanel><Grid Width="168" Height="95" Background="Black"><local:VideoEngineView x:Name="PreviewPlayer" IsMuted="True" PreviewMode="True" MediaOpened="PreviewOpened" MediaFailed="PreviewFailed"><TextBlock x:Name="PreviewStatus" Text="…" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/></local:VideoEngineView></Grid><TextBlock x:Name="PreviewTime" HorizontalAlignment="Center" Margin="0,4,0,1" Foreground="{DynamicResource Ink}" FontSize="11"/></StackPanel></Border>
   </Popup>

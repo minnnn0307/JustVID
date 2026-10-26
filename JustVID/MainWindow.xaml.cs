@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -11,6 +13,9 @@ using Microsoft.Win32;
 namespace JustVID;
 public partial class MainWindow : Window
 {
+    readonly DispatcherTimer fullscreenIdle = new() { Interval = TimeSpan.FromMilliseconds(100) };
+    Point lastPointer;
+    long controlsActivity;
     readonly DispatcherTimer clock = new() { Interval = TimeSpan.FromMilliseconds(250) };
     readonly DispatcherTimer previewDelay = new() { Interval = TimeSpan.FromMilliseconds(180) };
     readonly DispatcherTimer previewRelease = new() { Interval = TimeSpan.FromSeconds(2) };
@@ -27,6 +32,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         frame = new WindowFrame(this);
+        fullscreenIdle.Tick += (_, _) => UpdateFullscreenControls();
         Player.Volume = Volume.Value; UpdateVolumeIcon();
         clock.Tick += (_, _) => { if (!ready || seeking) return; updating = true; Timeline.Value = Player.Position.TotalSeconds; updating = false; UpdateClock(); };
         previewDelay.Tick += (_, _) => { previewDelay.Stop(); ShowPreview(); };
@@ -36,7 +42,7 @@ public partial class MainWindow : Window
             var args = Environment.GetCommandLineArgs(); if (args.Length > 1 && File.Exists(args[1])) OpenFile(args[1]);
         };
         Closed += (_, _) => {
-            clock.Stop(); previewDelay.Stop(); previewRelease.Stop(); Player.Dispose(); PreviewPlayer.Dispose();
+            fullscreenIdle.Stop(); FullscreenControls.IsOpen = false; clock.Stop(); previewDelay.Stop(); previewRelease.Stop(); Player.Dispose(); PreviewPlayer.Dispose();
             try { Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!); File.WriteAllText(settingsPath, JsonSerializer.Serialize(new Settings(light, Volume.Value))); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         };
         SizeChanged += (_, _) => { Volume.Visibility = ActualWidth < 430 ? Visibility.Collapsed : Visibility.Visible; Clock.Visibility = ActualWidth < 330 ? Visibility.Collapsed : Visibility.Visible; FileName.Visibility = ActualWidth < 440 ? Visibility.Collapsed : Visibility.Visible; };
@@ -47,7 +53,7 @@ public partial class MainWindow : Window
     void OpenFile(string path)
     {
         clock.Stop(); ReleasePreview(); CancelSelection(); ready = false; playing = false; Timeline.IsEnabled = false;
-        Player.Close(); crop = new(0, 0, 1, 1); FileName.Text = Path.GetFileName(path); OpenHint.Visibility = Visibility.Collapsed;
+        Player.Close(); crop = new(0, 0, 1, 1); FileName.Text = Path.GetFileName(path); EmptyLogo.Visibility = Visibility.Collapsed;
         source = new Uri(Path.GetFullPath(path)); Player.Source = source; Player.Visibility = Visibility.Visible; Player.Play(); playing = true; PlayButton.Content = "Ⅱ";
     }
     void MediaOpened(object sender, RoutedEventArgs e)
@@ -59,7 +65,7 @@ public partial class MainWindow : Window
     void MediaEnded(object sender, RoutedEventArgs e) { Player.Pause(); playing = false; PlayButton.Content = "▶"; }
     void MediaFailed(object sender, EventArgs e)
     {
-        clock.Stop(); ready = playing = false; Timeline.IsEnabled = false; Player.Close(); Player.Visibility = Visibility.Hidden; ReleasePreview(); OpenHint.Visibility = Visibility.Visible; PlayButton.Content = "▶";
+        clock.Stop(); ready = playing = false; Timeline.IsEnabled = false; Player.Close(); Player.Visibility = Visibility.Hidden; ReleasePreview(); EmptyLogo.Visibility = Visibility.Visible; PlayButton.Content = "▶";
         MessageBox.Show(this, "영상을 열 수 없습니다. 손상되었거나 지원하지 않는 파일일 수 있습니다.\nThe file may be damaged or unsupported.", "JustVID", MessageBoxButton.OK, MessageBoxImage.Information);
     }
     void ToggleClick(object sender, RoutedEventArgs e) => Toggle();
@@ -139,7 +145,7 @@ public partial class MainWindow : Window
     {
         var menu = new ContextMenu();
         foreach (var item in new[] { ("다크 / Dark", false), ("라이트 / Light", true) }) { var m = new MenuItem { Header = item.Item1, IsCheckable = true, IsChecked = light == item.Item2 }; m.Click += (_, _) => { light = item.Item2; ApplyTheme(); }; menu.Items.Add(m); }
-        menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = $"JustVID · 1.0.3 · {Publisher}", IsEnabled = false }); menu.IsOpen = true;
+        menu.Items.Add(new Separator()); menu.Items.Add(new MenuItem { Header = $"JustVID · 1.1.0 · {Publisher}", IsEnabled = false }); menu.IsOpen = true;
     }
     void ApplyTheme()
     {
@@ -156,21 +162,65 @@ public partial class MainWindow : Window
         if (fullscreen) { ExitFullscreen(); return; }
         CancelSelection(); ReleasePreview(); fullscreen = true;
         TitleBar.Visibility = Visibility.Collapsed; TitleRow.Height = new GridLength(0);
+        RootLayout.Children.Remove(ControlBar);
+        FullscreenControlHost.Child = ControlBar;
         frame.EnterFullscreen();
+        PositionFullscreenControls();
+        if (GetCursorPos(out var cursor)) lastPointer = new Point(cursor.X, cursor.Y);
+        fullscreenIdle.Start();
     }
     void ExitFullscreen()
     {
         if (!fullscreen) return;
         CancelSelection(); fullscreen = false;
+        fullscreenIdle.Stop(); FullscreenControls.IsOpen = false; ReleasePreview();
+        FullscreenControlHost.Child = null; RootLayout.Children.Add(ControlBar);
         TitleBar.Visibility = Visibility.Visible; TitleRow.Height = new GridLength(40);
         frame.ExitFullscreen();
     }
+    void PositionFullscreenControls()
+    {
+        FullscreenControlHost.Width = Math.Max(1, ActualWidth);
+        FullscreenControls.HorizontalOffset = 0;
+        FullscreenControls.VerticalOffset = Math.Max(0, ActualHeight - 75);
+    }
+    void UpdateFullscreenControls()
+    {
+        if (!fullscreen || !GetCursorPos(out var cursor)) return;
+        var pointer = new Point(cursor.X, cursor.Y);
+        var local = PointFromScreen(pointer);
+        bool moved = pointer != lastPointer;
+        lastPointer = pointer;
+        bool inWindow = local.X >= 0 && local.X < ActualWidth && local.Y >= 0 && local.Y < ActualHeight;
+        bool appActive = IsActive || Window.GetWindow(InputArea)?.IsActive == true || FullscreenControlHost.IsKeyboardFocusWithin;
+        if (!appActive) { FullscreenControls.IsOpen = false; ReleasePreview(); return; }
+        long now = Stopwatch.GetTimestamp();
+        if (moved && inWindow && local.Y >= ActualHeight - 84)
+        {
+            controlsActivity = now; PositionFullscreenControls(); FullscreenControls.IsOpen = true;
+        }
+        if (!FullscreenControls.IsOpen) return;
+        if (ControlBar.IsMouseCaptureWithin || seeking || origin != null || (inWindow && Mouse.LeftButton == MouseButtonState.Pressed)) controlsActivity = now;
+        if ((now - controlsActivity) / (double)Stopwatch.Frequency >= 2.5)
+        {
+            FullscreenControls.IsOpen = false; ReleasePreview();
+            // A closed popup must not keep keyboard focus in its old child tree.
+            if (ready) InputArea.Focus(); else Focus();
+        }
+    }
+    [StructLayout(LayoutKind.Sequential)] struct CursorPoint { public int X, Y; }
+    [DllImport("user32.dll")] static extern bool GetCursorPos(out CursorPoint point);
     void KeyDownHandler(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.O && Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) OpenClick(this, e);
         else if (e.Key == Key.Space) Toggle();
         else if (e.Key == Key.F) ToggleFullscreen();
-        else if (e.Key == Key.Escape) { CancelSelection(); if (fullscreen) ExitFullscreen(); }
+        else if (e.Key == Key.Escape)
+        {
+            CancelSelection();
+            if (fullscreen) ExitFullscreen();
+            if (WindowState == WindowState.Maximized) WindowState = WindowState.Normal;
+        }
         else if (e.Key == Key.M) MuteClick(this, e);
         else if (ready && (e.Key == Key.Left || e.Key == Key.Right)) Player.Position = TimeSpan.FromSeconds(Math.Clamp(Player.Position.TotalSeconds + (e.Key == Key.Right ? 5 : -5), 0, Timeline.Maximum));
         else return;

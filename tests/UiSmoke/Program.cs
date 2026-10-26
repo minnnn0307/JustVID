@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -35,6 +36,10 @@ static class Smoke
     static async Task Run()
     {
         await Task.Delay(500);
+        var logo = Field<Viewbox>("EmptyLogo");
+        Check(logo.IsVisible && !logo.IsHitTestVisible, "idle screen shows a non-clickable centered JustVID logo");
+        Check(typeof(MainWindow).GetField("OpenHint", fields) == null, "idle file-open button removed");
+        SaveElement(Field<Grid>("RootLayout"), "idle-logo");
         typeof(MainWindow).GetMethod("OpenFile", fields)!.Invoke(window, new object[] { Path.Combine(AppContext.BaseDirectory, "fixture.mp4") });
         await Wait(() => Field<bool>("ready"), "Fixture did not decode");
         await Task.Delay(500);
@@ -73,10 +78,28 @@ static class Smoke
         var monitor = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
         GetMonitorInfo(MonitorFromWindow(handle, 2), ref monitor);
         Check(actual.Equals(monitor.Monitor), "fullscreen covers entire monitor including taskbar area");
+        var controls = Field<Popup>("FullscreenControls");
+        Check(!controls.IsOpen && Math.Abs(Field<Grid>("VideoArea").ActualHeight - window.ActualHeight) < 2,
+            "fullscreen starts with controls hidden and no reserved control row");
         var bottomWindow = WindowFromPoint(new NativePoint((actual.Left + actual.Right) / 2, actual.Bottom - 2));
         GetWindowThreadProcessId(bottomWindow, out uint process);
         Check(process == Environment.ProcessId, "taskbar does not cover fullscreen bottom edge");
-        Invoke("ExitFullscreen"); await Task.Delay(500); GetWindowRect(handle, out actual);
+        var videoHeight = Field<Grid>("VideoArea").ActualHeight;
+        Move(window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight / 2))); await Task.Delay(200);
+        Move(window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight - 20)));
+        await Wait(() => controls.IsOpen, "bottom edge did not reveal fullscreen controls");
+        Check(controls.IsOpen && Math.Abs(Field<Grid>("VideoArea").ActualHeight - videoHeight) < 2,
+            "bottom mouse movement reveals controls without resizing video");
+        var timeline = Field<Slider>("Timeline");
+        await Task.Delay(200);
+        Move(timeline.PointToScreen(new Point(timeline.ActualWidth * .2, timeline.ActualHeight / 2)));
+        mouse_event(2, 0, 0, 0, UIntPtr.Zero); await Task.Delay(100); mouse_event(4, 0, 0, 0, UIntPtr.Zero);
+        await Wait(() => view.Position.TotalSeconds > 4 && view.Position.TotalSeconds < 9, "fullscreen seek controls did not receive native click");
+        Check(true, "fullscreen overlay timeline receives native seek click");
+        await Wait(() => !controls.IsOpen, "fullscreen controls did not hide after inactivity");
+        Check(!controls.IsOpen, "fullscreen controls auto-hide after inactivity");
+        SendEscape(); await Task.Delay(500); GetWindowRect(handle, out actual);
+        Check(!Field<bool>("fullscreen") && Field<Grid>("ControlBar").IsVisible, "Escape exits fullscreen and restores normal controls");
         Check(Math.Abs(actual.Left - original.Left) <= 2 && Math.Abs(actual.Top - original.Top) <= 2 && Math.Abs(actual.Right - original.Right) <= 2 && Math.Abs(actual.Bottom - original.Bottom) <= 2, "fullscreen restores original bounds");
         window.WindowState = WindowState.Maximized; await Task.Delay(500);
         GetWindowRect(handle, out actual);
@@ -88,7 +111,11 @@ static class Smoke
         Invoke("ToggleFullscreen"); await Task.Delay(500); Invoke("ExitFullscreen"); await Task.Delay(500);
         GetWindowRect(handle, out actual);
         Check(window.WindowState == WindowState.Maximized && actual.Bottom <= monitor.Work.Bottom, "fullscreen from maximized restores work-area bounds");
-        window.WindowState = WindowState.Normal;
+        window.Activate(); SendEscape(); await Task.Delay(300);
+        Check(window.WindowState == WindowState.Normal, "Escape restores a maximized window");
+        window.WindowState = WindowState.Maximized; await Task.Delay(300); Invoke("ToggleFullscreen"); await Task.Delay(300);
+        SendEscape(); await Task.Delay(500);
+        Check(!Field<bool>("fullscreen") && window.WindowState == WindowState.Normal, "Escape from fullscreen entered while maximized restores normal window");
         Check(!ContainsGrip(window), "no resize-grip control");
         Console.WriteLine("Native Windows input and fullscreen smoke checks passed.");
     }
@@ -139,12 +166,14 @@ static class Smoke
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++) if (ContainsGrip(VisualTreeHelper.GetChild(root, i))) return true;
         return false;
     }
-    static void SaveOverlay(Grid input)
+    static void SendEscape() { keybd_event(0x1B, 0, 0, UIntPtr.Zero); keybd_event(0x1B, 0, 2, UIntPtr.Zero); }
+    static void SaveOverlay(Grid input) => SaveElement(input, "selection");
+    static void SaveElement(FrameworkElement element, string name)
     {
         Directory.CreateDirectory("artifacts/ui");
-        var image = new RenderTargetBitmap((int)input.ActualWidth, (int)input.ActualHeight, 96, 96, PixelFormats.Pbgra32); image.Render(input);
+        var image = new RenderTargetBitmap((int)element.ActualWidth, (int)element.ActualHeight, 96, 96, PixelFormats.Pbgra32); image.Render(element);
         var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(image));
-        using var stream = File.Create("artifacts/ui/selection.png"); png.Save(stream);
+        using var stream = File.Create($"artifacts/ui/{name}.png"); png.Save(stream);
     }
     [StructLayout(LayoutKind.Sequential)] readonly record struct NativePoint(int X, int Y);
     [StructLayout(LayoutKind.Sequential)] struct NativeRect { public int Left, Top, Right, Bottom; }
